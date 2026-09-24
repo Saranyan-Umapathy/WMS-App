@@ -1,0 +1,1669 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Warehouse Floor Simulator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  /* single dark look for every viewer, regardless of system theme */
+  color-scheme: dark;
+  --bg:#0D1216; --panel:#151C22; --panel2:#1B242B; --ink:#E2E8ED; --muted:#91A1AF; --line:#27323C;
+  --accent:#F2B705; --accent-ink:#1C1500; --focus:#60A5FA;
+  --floor:#182128; --yard:#10161B; --wall:#8EA2B4; --rack:#5B7B98; --stock:#3E6F98; --mark:#C99A06;
+  --good:#4ADE80; --warn:#FBBF24; --bad:#FB923C;
+  --zone-a:.09;
+  --sans:"Barlow", "Segoe UI", system-ui, sans-serif;
+  --cond:"Barlow Condensed", "Arial Narrow", "Segoe UI", sans-serif;
+  --mono:"JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+html{background:#0D1216}
+html,body{height:auto}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45;margin:0}
+.app{padding-inline:16px;padding-block:14px 28px;max-width:1680px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+h1,h2,h3{margin:0;text-wrap:balance}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+
+/* header */
+.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px}
+.brand h1{font-family:var(--cond);font-weight:700;font-size:28px;letter-spacing:.01em;line-height:1.05}
+.brand h1 span{display:inline-block;background:var(--accent);color:var(--accent-ink);padding:0 6px;margin-right:6px;border-radius:3px}
+.brand p{margin:4px 0 0;color:var(--muted);font-size:13px}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 11px;cursor:pointer;font-weight:600;font-size:13px;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--ink);color:var(--panel);border-color:var(--ink);min-width:78px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--panel)}
+.seg .lbl{font-family:var(--cond);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:6px 4px 6px 9px;align-self:center}
+.seg button{background:none;border:0;padding:6px 10px;cursor:pointer;font-weight:600;font-size:13px;border-left:1px solid var(--line)}
+.seg .lbl + button{border-left:0}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+
+/* kpis */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.kpi{background:var(--panel);padding:9px 12px 10px;display:flex;flex-direction:column;gap:1px;min-width:0}
+.kpi .k{font-family:var(--cond);font-size:12px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.kpi .v{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.15}
+.kpi .s{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* layout */
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 370px;gap:12px;align-items:start}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;min-width:0}
+.floor{display:flex;flex-direction:column}
+.floorhead{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line)}
+.clock{font-family:var(--mono);font-weight:600;font-size:15px;font-variant-numeric:tabular-nums}
+.clock small{font-family:var(--sans);font-weight:500;color:var(--muted);font-size:12px;margin-left:6px}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex:none}
+.sq{width:10px;height:8px;border-radius:2px;display:inline-block;flex:none}
+.canvasWrap{overflow-x:auto;position:relative}
+canvas{display:block;cursor:default}
+.statebar{padding:10px 12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
+.bar{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--panel2)}
+.bar i{display:block;height:100%;transition:width .4s}
+.barkey{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted)}
+.barkey b{color:var(--ink);font-variant-numeric:tabular-nums}
+
+.side{display:flex;flex-direction:column;gap:12px;min-width:0}
+.sectionhead{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.sectionhead h2{font-family:var(--cond);font-size:15px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.inspbody{padding:12px;display:flex;flex-direction:column;gap:10px}
+.who{display:flex;align-items:center;gap:10px}
+.who .av{width:30px;height:30px;border-radius:50%;flex:none;border:2px solid var(--panel);box-shadow:0 0 0 1px var(--line)}
+.who h3{font-size:16px}
+.who p{margin:0;color:var(--muted);font-size:12px}
+.now{background:var(--panel2);border-radius:6px;padding:8px 10px}
+.now .lab{font-family:var(--cond);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.now .txt{font-weight:600}
+.why{font-size:13px;color:var(--ink)}
+.why em{font-style:normal;color:var(--muted);font-family:var(--cond);letter-spacing:.06em;text-transform:uppercase;font-size:11px;font-weight:600;display:block}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.stats div{background:var(--panel2);border-radius:6px;padding:6px 8px}
+.stats b{display:block;font-size:16px;font-variant-numeric:tabular-nums}
+.stats span{font-size:11px;color:var(--muted)}
+.scanlist{list-style:none;margin:0;padding:0;font-family:var(--mono);font-size:11.5px;display:flex;flex-direction:column;gap:3px}
+.scanlist li{display:flex;gap:6px;min-width:0}
+.scanlist code{color:var(--muted);flex:none}
+.scanlist span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.steps{margin:0;padding-left:18px;font-size:12.5px;color:var(--muted)}
+.steps li:first-child{color:var(--ink);font-weight:600}
+.roster{display:flex;flex-wrap:wrap;gap:4px}
+.roster button{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:2px 8px 2px 5px;font-size:11.5px;cursor:pointer;font-family:var(--mono)}
+.roster button[aria-pressed="true"]{border-color:var(--ink);background:var(--panel2)}
+.roster .dot{width:9px;height:9px}
+.hint{color:var(--muted);font-size:13px;margin:0}
+
+.log select{font:inherit;font-size:12.5px;padding:4px 6px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink)}
+.evlist{list-style:none;margin:0;padding:4px 0;max-height:430px;overflow-y:auto}
+.ev{display:grid;grid-template-columns:44px 1fr;gap:0 8px;padding:5px 12px;border-left:3px solid var(--c);font-size:12.5px}
+.ev + .ev{border-top:1px solid var(--panel2)}
+.ev time{font-family:var(--mono);font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;padding-top:1px}
+.ev .l1{display:flex;gap:6px;align-items:baseline;flex-wrap:wrap;min-width:0}
+.ev code{font-family:var(--mono);font-weight:600;font-size:11.5px;color:var(--c)}
+.ev .rf{font-family:var(--cond);font-size:10.5px;font-weight:700;letter-spacing:.06em;border:1px solid var(--line);border-radius:3px;padding:0 3px;color:var(--muted)}
+.ev .by{color:var(--muted);font-size:11.5px}
+.ev .msg{grid-column:2;overflow-wrap:anywhere}
+.ev.alert{background:color-mix(in srgb, var(--bad) 7%, transparent)}
+
+.leftcol{display:flex;flex-direction:column;gap:12px;min-width:0}
+.tour{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0}
+.tourmain{padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.tourtop{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.tourtop .n{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.tourtop h2{font-family:var(--cond);font-size:20px;font-weight:700}
+.tourmain p{margin:0;max-width:78ch}
+.tourmain .eng{font-family:var(--mono);font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.tournav{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-left:1px solid var(--line);justify-content:center}
+.tournav .row{display:flex;gap:8px}
+.pips{display:flex;gap:4px;flex-wrap:wrap;max-width:220px}
+.pips button{width:18px;height:6px;border-radius:3px;border:0;background:var(--line);cursor:pointer;padding:0}
+.pips button[aria-current="true"]{background:var(--accent)}
+.note{font-size:12px;color:var(--muted)}
+
+@media (max-width:1180px){ .layout{grid-template-columns:minmax(0,1fr)} .evlist{max-height:340px} }
+@media (max-width:640px){ .tour{grid-template-columns:1fr} .tournav{border-left:0;border-top:1px solid var(--line)} .brand h1{font-size:24px} }
+@media (prefers-reduced-motion: reduce){ .bar i{transition:none} }
+</style>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <h1><span>WMS</span>Warehouse Floor Simulator</h1>
+      <p>26 workers make their own decisions from live floor state. Every step is confirmed with a handheld RF scan.</p>
+    </div>
+    <div class="controls">
+      <button class="btn primary" id="btnPlay" type="button">Pause</button>
+      <div class="seg" id="speedSeg" role="group" aria-label="Speed">
+        <span class="lbl">Speed</span>
+        <button type="button" data-v="0.5" aria-pressed="false">0.5×</button>
+        <button type="button" data-v="1" aria-pressed="true">1×</button>
+        <button type="button" data-v="2" aria-pressed="false">2×</button>
+        <button type="button" data-v="5" aria-pressed="false">5×</button>
+        <button type="button" data-v="10" aria-pressed="false">10×</button>
+      </div>
+      <div class="seg" id="modeSeg" role="group" aria-label="Order release">
+        <span class="lbl">Release</span>
+        <button type="button" data-v="continuous" aria-pressed="true">Continuous</button>
+        <button type="button" data-v="wave" aria-pressed="false">Waves</button>
+      </div>
+      <div class="seg" id="bubbleSeg" role="group" aria-label="Status labels">
+        <span class="lbl">Labels</span>
+        <button type="button" data-v="all" aria-pressed="false">All</button>
+        <button type="button" data-v="scans" aria-pressed="true">Scans</button>
+        <button type="button" data-v="off" aria-pressed="false">Off</button>
+      </div>
+      <button class="btn" id="btnTruck" type="button">+ Inbound truck</button>
+      <button class="btn" id="btnSpike" type="button">+ 20 orders</button>
+      <button class="btn" id="btnReset" type="button">Restart</button>
+    </div>
+  </header>
+
+  <section class="kpis" aria-label="Live metrics">
+    <div class="kpi"><span class="k">Orders shipped</span><span class="v" id="kShipped">0</span><span class="s" id="kShippedS">&nbsp;</span></div>
+    <div class="kpi"><span class="k">Open orders</span><span class="v" id="kOpen">0</span><span class="s" id="kOpenS">&nbsp;</span></div>
+    <div class="kpi"><span class="k">Order cycle time</span><span class="v" id="kCycle">–</span><span class="s">release to trailer, last 30</span></div>
+    <div class="kpi"><span class="k">Lines picked / hr</span><span class="v" id="kLines">0</span><span class="s" id="kLinesS">&nbsp;</span></div>
+    <div class="kpi"><span class="k">RF scans</span><span class="v" id="kScans">0</span><span class="s" id="kScansS">&nbsp;</span></div>
+    <div class="kpi"><span class="k">Pack queue</span><span class="v" id="kPack">0</span><span class="s" id="kPackS">&nbsp;</span></div>
+    <div class="kpi"><span class="k">Dock doors in use</span><span class="v" id="kDock">–</span><span class="s" id="kDockS">&nbsp;</span></div>
+    <div class="kpi"><span class="k">Release</span><span class="v" id="kWave">Live</span><span class="s" id="kWaveS">&nbsp;</span></div>
+  </section>
+
+  <main class="layout">
+    <div class="leftcol">
+    <section class="card floor">
+      <div class="floorhead">
+        <div class="clock" id="clock">06:00<small>shift clock · 1 s on screen = 1 min on the floor</small></div>
+        <div class="legend" id="legend"></div>
+      </div>
+      <div class="canvasWrap" id="wrap"><canvas id="cv" aria-label="Top-down warehouse floor with moving workers"></canvas></div>
+      <div class="statebar">
+        <div class="bar" id="stateBar"></div>
+        <div class="barkey" id="stateKey"></div>
+      </div>
+    </section>
+
+    <section class="card tour" aria-label="Guided walkthrough">
+      <div class="tourmain">
+        <div class="tourtop"><span class="n" id="tourN">1 / 11</span><h2 id="tourTitle"></h2></div>
+        <p id="tourBody"></p>
+        <p class="eng" id="tourEng"></p>
+      </div>
+      <div class="tournav">
+        <div class="row">
+          <button class="btn" id="tourPrev" type="button">Previous</button>
+          <button class="btn" id="tourNext" type="button">Next step</button>
+        </div>
+        <div class="pips" id="pips"></div>
+        <span class="note">Each step highlights its area, selects a worker and filters the log.</span>
+      </div>
+    </section>
+    </div>
+
+    <aside class="side">
+      <section class="card">
+        <div class="sectionhead"><h2>Worker</h2><button class="btn" id="btnFollow" type="button" hidden>Clear</button></div>
+        <div class="inspbody" id="insp"></div>
+      </section>
+      <section class="card log">
+        <div class="sectionhead">
+          <h2>WMS event log</h2>
+          <select id="logFilter" aria-label="Filter events">
+            <option value="all">All events</option>
+            <option value="rf">Handheld scans only</option>
+            <option value="inbound">Receiving &amp; QC</option>
+            <option value="storage">Putaway &amp; storage</option>
+            <option value="pick">Orders &amp; picking</option>
+            <option value="pack">Packing</option>
+            <option value="ship">Sort, load &amp; ship</option>
+            <option value="inv">Inventory control</option>
+            <option value="returns">Returns</option>
+            <option value="alert">Alerts &amp; supervisor</option>
+          </select>
+        </div>
+        <ul class="evlist" id="evlist" aria-live="off"></ul>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------------------------------------------------------------- map */
+const W = 66, H = 38;
+const OUT = 0, FLOOR = 1, WALL = 2, RACK = 3, BLOCK = 4, DOOR = 5;
+const idx = (x, y) => y * W + x;
+const grid = new Uint8Array(W * H);
+const setRect = (x0, y0, x1, y1, v) => { for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) grid[idx(x, y)] = v; };
+
+setRect(3, 1, 62, 36, WALL);
+setRect(4, 2, 61, 35, FLOOR);
+const IN_DOOR_Y = [6, 11, 16, 21];
+const OUT_DOOR_Y = [7, 14, 22, 29];
+IN_DOOR_Y.forEach(y => grid[idx(3, y)] = DOOR);
+OUT_DOOR_Y.forEach(y => grid[idx(62, y)] = DOOR);
+
+// receiving staging spots (pallet footprints)
+const SPOT_DEF = [];
+for (const x of [6, 9]) for (let y = 3; y <= 21; y += 2) {
+  SPOT_DEF.push({ x, y, ax: x === 6 ? 7 : 8, ay: y, code: 'STG-' + String(SPOT_DEF.length + 1).padStart(2, '0') });
+  grid[idx(x, y)] = BLOCK;
+}
+// QC bench, quarantine cage, returns desk
+setRect(6, 25, 7, 25, BLOCK);
+setRect(9, 24, 10, 25, BLOCK);
+setRect(6, 31, 8, 31, BLOCK);
+const QTN = { ax: 8, ay: 25, x: 9, y: 25 };
+
+// racks
+const AISLES = 'ABCDEFGHI';
+const LOC_DEF = [];
+const aisleOf = new Int8Array(W * H).fill(-1);
+for (let p = 0; p < 8; p++) {
+  const px = 14 + 4 * p;
+  for (const x of [px, px + 1]) {
+    const rightOfAisle = x === px;          // rack sits on the right side of its aisle
+    const aisle = rightOfAisle ? p : p + 1;
+    const ax = rightOfAisle ? x - 1 : x + 1;
+    let row = 0;
+    for (let y = 4; y <= 32; y++) {
+      if (y >= 17 && y <= 19) continue;
+      grid[idx(x, y)] = RACK;
+      const bay = rightOfAisle ? 2 * row + 2 : 2 * row + 1;
+      const lvl = 1 + ((x * 3 + y * 5) % 4);
+      LOC_DEF.push({ x, y, ax, ay: y, aisle, code: `${AISLES[aisle]}-${String(bay).padStart(2, '0')}-${lvl}` });
+      row++;
+    }
+  }
+}
+for (let k = 0; k < 9; k++) for (let y = 4; y <= 32; y++) {
+  if (y >= 17 && y <= 19) continue;
+  for (const x of [12 + 4 * k, 13 + 4 * k]) aisleOf[idx(x, y)] = k;
+}
+
+// pack stations, conveyor, outbound lanes
+const ST_Y = [4, 9, 14, 20, 25, 30];
+ST_Y.forEach(y => { setRect(49, y, 50, y, BLOCK); grid[idx(52, y)] = BLOCK; });
+setRect(53, 3, 53, 31, BLOCK);
+const CARRIERS = ['PARCEL', 'EXPRESS', 'LTL', 'POSTAL'];
+OUT_DOOR_Y.forEach(y => setRect(54, y, 59, y, BLOCK));
+const LANE_CAP = 12;
+// supervisor desk
+setRect(49, 33, 50, 33, BLOCK);
+
+const walkable = i => grid[i] === FLOOR || grid[i] === DOOR;
+
+const ZONES = {
+  receiving: { x: 0, y: 2, w: 11, h: 21, label: 'RECEIVING · STAGING', tint: '#0891B2' },
+  qc:        { x: 4, y: 23, w: 7, h: 5, label: 'QC INSPECTION', tint: '#16A34A' },
+  returns:   { x: 4, y: 28, w: 7, h: 8, label: 'RETURNS', tint: '#92400E' },
+  storage:   { x: 12, y: 2, w: 34, h: 34, label: 'RESERVE STORAGE · AISLES A–I', tint: '#44617B' },
+  pack:      { x: 47, y: 2, w: 6, h: 30, label: 'PACK', tint: '#DB2777' },
+  outbound:  { x: 53, y: 2, w: 13, h: 30, label: 'SORT · LOAD', tint: '#EA580C' },
+  office:    { x: 47, y: 32, w: 6, h: 4, label: 'SUPERVISOR', tint: '#E11D48' },
+  equip:     { x: 53, y: 32, w: 9, h: 4, label: 'EQUIPMENT', tint: '#CA8A04' },
+  orders:    { x: 12, y: 2, w: 41, h: 34, label: '', tint: '#2563EB' },
+  all:       { x: 4, y: 2, w: 58, h: 34, label: '', tint: '#E11D48' },
+};
+
+/* ---------------------------------------------------------------- roles */
+const ROLES = {
+  supervisor: { label: 'Supervisor',        short: 'SUP', color: '#E11D48', count: 1, speed: 2.3 },
+  receiver:   { label: 'Receiver',          short: 'RCV', color: '#0891B2', count: 4, speed: 2.4 },
+  qc:         { label: 'QC inspector',      short: 'QCI', color: '#16A34A', count: 1, speed: 2.3 },
+  forklift:   { label: 'Forklift putaway',  short: 'FLT', color: '#EAB308', count: 3, speed: 3.3, vehicle: true },
+  picker:     { label: 'Picker',            short: 'PCK', color: '#2563EB', count: 7, speed: 2.5 },
+  packer:     { label: 'Packer',            short: 'PAK', color: '#DB2777', count: 4, speed: 2.3 },
+  loader:     { label: 'Loader',            short: 'LDR', color: '#EA580C', count: 3, speed: 2.4 },
+  inventory:  { label: 'Inventory control', short: 'INV', color: '#7C3AED', count: 2, speed: 2.3 },
+  returns:    { label: 'Returns clerk',     short: 'RTN', color: '#92400E', count: 1, speed: 2.3 },
+};
+const STAGES = {
+  inbound: { label: 'Receiving', color: '#0891B2' },
+  qc:      { label: 'QC',        color: '#16A34A' },
+  storage: { label: 'Putaway',   color: '#CA8A04' },
+  order:   { label: 'Orders',    color: '#64748B' },
+  pick:    { label: 'Pick',      color: '#2563EB' },
+  pack:    { label: 'Pack',      color: '#DB2777' },
+  ship:    { label: 'Ship',      color: '#EA580C' },
+  inv:     { label: 'Inventory', color: '#7C3AED' },
+  returns: { label: 'Returns',   color: '#A16207' },
+  sup:     { label: 'Supervisor',color: '#E11D48' },
+  alert:   { label: 'Alert',     color: '#DC2626' },
+};
+const FILTERS = {
+  all: () => true, rf: e => e.rf,
+  inbound: e => e.stage === 'inbound' || e.stage === 'qc',
+  storage: e => e.stage === 'storage',
+  pick: e => e.stage === 'order' || e.stage === 'pick',
+  pack: e => e.stage === 'pack', ship: e => e.stage === 'ship', inv: e => e.stage === 'inv',
+  returns: e => e.stage === 'returns', alert: e => e.stage === 'alert' || e.stage === 'sup',
+};
+const NAMES = ['Maya','Arjun','Lena','Tomas','Priya','Kofi','Ines','Ravi','Sana','Diego','Mei','Omar','Hana','Luca','Asha','Jon','Nia','Karim','Elif','Theo','Zara','Ken','Leila','Marco','Anika','Sam','Yusuf','Rosa'];
+
+const PARK = [[44,34],[45,34],[46,34],[44,35],[45,35],[46,35],[47,35],[43,34],[43,35],[42,34]];
+const HOMES = {
+  receiver: [[5,4],[5,9],[5,14],[5,19]],
+  qc: [[8,26]], returns: [[7,32]], supervisor: [[50,34]],
+  forklift: [[55,34],[57,34],[59,34]],
+  inventory: [[46,2],[47,2]],
+  loader: [[60,8],[60,15],[60,23]],
+};
+
+// SKUs with ABC velocity class
+const SKUS = [];
+for (let i = 0; i < 60; i++) SKUS.push({ id: 'SKU-' + (1001 + i), cls: i < 12 ? 'A' : i < 30 ? 'B' : 'C' });
+const SKU_CLASS = Object.fromEntries(SKUS.map(s => [s.id, s.cls]));
+const CLASS_W = { A: 0.6, B: 0.3, C: 0.1 };
+const MAXQ = 90;
+
+/* ---------------------------------------------------------------- rng */
+function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+let rnd = mulberry32(1);
+const R = () => rnd();
+const RI = (a, b) => a + Math.floor(R() * (b - a + 1));
+const pick = arr => arr[Math.floor(R() * arr.length)];
+const expRand = mean => -Math.log(1 - R()) * mean;
+
+/* ---------------------------------------------------------------- state */
+let S;
+
+function reset(seed) {
+  rnd = mulberry32(seed);
+  S = {
+    t: 0, seed, mode: UI.mode,
+    spots: SPOT_DEF.map(s => ({ ...s, pallet: null, reserved: false })),
+    locs: LOC_DEF.map(l => ({ ...l, sku: null, qty: 0, alloc: 0, reserved: false, lastCount: -999 })),
+    inDoors: IN_DOOR_Y.map((y, i) => ({ n: i + 1, y, truck: null })),
+    yard: [],
+    stations: ST_Y.map((y, i) => ({ n: i + 1, y, dx: 48, bx: 50, sx: 51, queue: [], inbound: 0, packer: null, busy: false })),
+    lanes: OUT_DOOR_Y.map((y, i) => ({ i, y, door: i + 5, name: CARRIERS[i], cartons: [], truck: null, nextTruck: 0, loader: null })),
+    pending: [], backorders: [], pickQueue: [], cartons: [], returns: [],
+    quarantine: 0, events: [], fx: [], agents: [],
+    occ: new Int32Array(W * H).fill(-1),
+    aisleHot: new Float64Array(9),
+    seq: { asn: 7710, lpn: 400120, so: 10420, tote: 300, batch: 51, ctn: 88001, tr: 0, wave: 1, rma: 5520 },
+    nextTruck: 35, nextOrder: 1, nextWave: 40, nextReturn: 18, nextSup: 2, nextBackorder: 5,
+    cool: {}, attention: null,
+    m: { created: 0, shipped: 0, cycle: [], pickTimes: [], scans: 0, noReads: 0, shipTimes: [] },
+  };
+  // initial stock slotted by velocity
+  for (const s of SKUS) {
+    const n = s.cls === 'A' ? 4 : s.cls === 'B' ? 3 : 2;
+    for (let k = 0; k < n; k++) { const l = chooseLocation(s.id, 40, true); if (l) { l.sku = s.id; l.qty = RI(18, 60); } }
+  }
+  // agents
+  let id = 0, nameI = Math.floor(R() * NAMES.length);
+  for (const role of Object.keys(ROLES)) {
+    for (let k = 0; k < ROLES[role].count; k++) {
+      const a = {
+        id: id++, role, baseRole: role, n: k + 1,
+        code: `${ROLES[role].short}-${String(k + 1).padStart(2, '0')}`,
+        first: NAMES[nameI++ % NAMES.length],
+        x: 0, y: 0, tile: 0, mv: -1, path: [], goal: -1, steps: [], cur: null,
+        state: 'idle', bubble: '', why: '', jobLabel: '', idleText: '', carry: null,
+        face: { x: 0, y: 1 }, waitT: 0, idleT: 0, think: R() * 0.5, replanned: false, ghost: false,
+        stats: { scans: 0, tasks: 0, busy: 0, idle: 0 }, lastScans: [], radio: null, station: null,
+      };
+      a.name = `${a.code} ${a.first}`;
+      if (role === 'packer') { a.station = S.stations[k]; S.stations[k].packer = a; }
+      if (role === 'loader') a.laneHome = k;
+      const [hx, hy] = homeFor(a);
+      a.x = hx; a.y = hy; a.tile = idx(hx, hy);
+      if (S.occ[a.tile] < 0) S.occ[a.tile] = a.id;
+      S.agents.push(a);
+    }
+  }
+  // opening situation: two trailers on the dock, trailers at every outbound door, orders waiting
+  spawnInbound(true); spawnInbound(true);
+  for (const L of S.lanes) arriveOutbound(L, true);
+  for (let i = 0; i < 12; i++) newOrder(true);
+  for (let i = 0; i < 2; i++) S.returns.push(newReturn());
+  emit('SHIFT_START', 'sup', null, `Day shift started · ${S.agents.length} workers signed in on RF`);
+  UI.selected = null;
+  buildRoster();
+  rebuildLog();
+}
+
+function homeFor(a) {
+  if (a.role === 'packer' && a.station) return [a.station.sx, a.station.y];
+  if (a.role === 'picker') return PARK[a.id % PARK.length];
+  if (a.role === 'loader') { const h = HOMES.loader; return h[(a.laneHome ?? a.id) % h.length]; }
+  const h = HOMES[a.role];
+  return h[(a.n - 1) % h.length];
+}
+
+/* ---------------------------------------------------------------- events */
+const pendingLog = [];
+function emit(code, stage, a, text, rf = false) {
+  const e = { t: S.t, code, stage, who: a ? a.name : 'WMS', text, rf, aid: a ? a.id : -1 };
+  S.events.push(e);
+  if (S.events.length > 600) S.events.splice(0, S.events.length - 600);
+  pendingLog.push(e);
+  if (a && rf) { a.lastScans.unshift({ t: S.t, code, text }); if (a.lastScans.length > 6) a.lastScans.pop(); }
+  return e;
+}
+
+/* ---------------------------------------------------------------- pathfinding */
+const gScore = new Float32Array(W * H), came = new Int32Array(W * H), seen = new Int32Array(W * H), closed = new Int32Array(W * H);
+let gen = 0;
+function findPath(start, goal, a, avoid = -1) {
+  if (start === goal) return [];
+  if (!walkable(goal)) return null;
+  gen++;
+  const gx = goal % W, gy = (goal / W) | 0;
+  const heap = [], hf = [];
+  const push = (i, f) => { heap.push(i); hf.push(f); let c = heap.length - 1; while (c > 0) { const p = (c - 1) >> 1; if (hf[p] <= hf[c]) break; [heap[p], heap[c]] = [heap[c], heap[p]]; [hf[p], hf[c]] = [hf[c], hf[p]]; c = p; } };
+  const pop = () => { const top = heap[0]; const li = heap.pop(), lf = hf.pop(); if (heap.length) { heap[0] = li; hf[0] = lf; let c = 0; for (;;) { const l = 2 * c + 1, r = l + 1; let m = c; if (l < heap.length && hf[l] < hf[m]) m = l; if (r < heap.length && hf[r] < hf[m]) m = r; if (m === c) break; [heap[m], heap[c]] = [heap[c], heap[m]]; [hf[m], hf[c]] = [hf[c], hf[m]]; c = m; } } return top; };
+  seen[start] = gen; gScore[start] = 0; came[start] = -1;
+  push(start, 0);
+  const isVeh = ROLES[a.role].vehicle;
+  let found = false, it = 0;
+  while (heap.length && it++ < 6000) {
+    const cur = pop();
+    if (closed[cur] === gen) continue;
+    closed[cur] = gen;
+    if (cur === goal) { found = true; break; }
+    const cx = cur % W, cy = (cur / W) | 0;
+    for (let d = 0; d < 4; d++) {
+      const nx = cx + (d === 0 ? 1 : d === 1 ? -1 : 0), ny = cy + (d === 2 ? 1 : d === 3 ? -1 : 0);
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const n = idx(nx, ny);
+      if (!walkable(n) || closed[n] === gen) continue;
+      let c = 1;
+      const k = aisleOf[n];
+      if (k >= 0 && S.aisleHot[k] > S.t && !isVeh) c += 3;
+      const o = S.occ[n];
+      if (o >= 0 && o !== a.id) c += S.agents[o].state === 'idle' ? 5 : 1.2;
+      if (n === avoid) c += 40;
+      const g = gScore[cur] + c;
+      if (seen[n] !== gen || g < gScore[n]) {
+        seen[n] = gen; gScore[n] = g; came[n] = cur;
+        push(n, g + Math.abs(nx - gx) + Math.abs(ny - gy));
+      }
+    }
+  }
+  if (!found) return null;
+  const path = [];
+  for (let c = goal; c !== start; c = came[c]) path.push(c);
+  return path.reverse();
+}
+
+/* ---------------------------------------------------------------- steps */
+const go = (x, y, label) => ({ k: 'go', x, y, label });
+const scan = (tx, ty, code, stage, text, label, opt = {}) => ({ k: 'scan', tx, ty, code, stage, text, label: label || code, ...opt });
+const work = (d, label) => ({ k: 'work', d, label });
+const act = f => ({ k: 'do', f });
+
+function beginStep(a, s) {
+  if (s.k === 'go') {
+    const goal = idx(s.x, s.y);
+    a.goal = goal;
+    a.path = findPath(a.tile, goal, a) || [];
+    a.state = 'moving'; a.bubble = s.label; a.waitT = 0; a.replanned = false;
+  } else if (s.k === 'scan') {
+    s.t = 0; s.dur = 0.45 + R() * 0.35; s.retried = false;
+    a.state = 'scanning'; a.bubble = s.label;
+    const dx = s.tx - a.x, dy = s.ty - a.y;
+    if (dx || dy) a.face = Math.abs(dx) >= Math.abs(dy) ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) };
+  } else if (s.k === 'work') {
+    s.t = 0; a.state = 'working'; a.bubble = s.label; a.progress = 0;
+  }
+}
+
+function runStep(a, s, dt) {
+  if (s.k === 'go') return moveAgent(a, dt);
+  if (s.k === 'scan') {
+    s.t += dt;
+    if (s.t < s.dur) return false;
+    if (!s.retried && s.wrongP && R() < s.wrongP) {
+      s.retried = true; s.t = 0;
+      emit('SCAN_MISMATCH', 'alert', a, `${s.wrongText}. WMS rejected it, rescanning`, true);
+      S.fx.push({ x: s.tx, y: s.ty, t0: S.t, ok: false });
+      a.bubble = 'Wrong location! Rescanning';
+      return false;
+    }
+    if (!s.retried && R() < 0.025) {
+      s.retried = true; s.t = 0; S.m.noReads++;
+      S.fx.push({ x: s.tx, y: s.ty, t0: S.t, ok: false });
+      a.bubble = 'No read. Rescanning';
+      return false;
+    }
+    S.m.scans++; a.stats.scans++;
+    S.fx.push({ x: s.tx, y: s.ty, t0: S.t, ok: true });
+    const text = typeof s.text === 'function' ? s.text(a) : s.text;
+    emit(s.code, s.stage, a, text, true);
+    return true;
+  }
+  if (s.k === 'work') {
+    s.t += dt; a.progress = Math.min(1, s.t / s.d);
+    return s.t >= s.d;
+  }
+  return true;
+}
+
+function speedOf(a) {
+  const base = ROLES[a.role].speed;
+  if (!a.carry) return base;
+  if (a.carry.t === 'pallet') return ROLES[a.role].vehicle ? base * 0.8 : base * 0.75;
+  if (a.carry.t === 'cart') return base * 0.9;
+  return base * 0.95;
+}
+
+function moveAgent(a, dt) {
+  let budget = speedOf(a) * dt;
+  while (budget > 1e-6) {
+    if (a.mv < 0) {
+      if (!a.path.length) return true;
+      const n = a.path[0];
+      const o = S.occ[n];
+      if (o >= 0 && o !== a.id && !a.ghost) {
+        a.waitT += dt; a.state = 'waiting';
+        const other = S.agents[o];
+        a.bubble = ROLES[other.role].vehicle && !ROLES[a.role].vehicle ? 'Yielding to forklift' : `Waiting: ${other.code} in the way`;
+        if (a.waitT > 0.7 && !a.replanned) {
+          a.replanned = true;
+          const p = findPath(a.tile, a.goal, a, n);
+          if (p && p.length) a.path = p;
+          return false;
+        }
+        if (a.waitT > 2.2) a.ghost = true; else return false;
+      }
+      if (S.occ[n] < 0) S.occ[n] = a.id;
+      a.mv = n; a.state = 'moving';
+      if (a.cur && a.cur.label) a.bubble = a.cur.label;
+    }
+    const tx = a.mv % W, ty = (a.mv / W) | 0;
+    const dx = tx - a.x, dy = ty - a.y;
+    if (dx || dy) a.face = dx ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) };
+    const d = Math.abs(dx) + Math.abs(dy);
+    if (d <= budget) {
+      a.x = tx; a.y = ty; budget -= d;
+      if (S.occ[a.tile] === a.id) S.occ[a.tile] = -1;
+      a.tile = a.mv; if (S.occ[a.tile] < 0) S.occ[a.tile] = a.id;
+      a.mv = -1; a.path.shift(); a.waitT = 0; a.replanned = false; a.ghost = false;
+    } else {
+      if (dx) a.x += Math.sign(dx) * budget; else a.y += Math.sign(dy) * budget;
+      budget = 0;
+    }
+  }
+  return !a.path.length && a.mv < 0;
+}
+
+function tickAgent(a, dt) {
+  if (a.radio && S.t > a.radio.until) a.radio = null;
+  for (let guard = 0; guard < 10; guard++) {
+    if (!a.cur) {
+      if (!a.steps.length) { idleBehavior(a, dt); return; }
+      a.cur = a.steps.shift();
+      if (a.cur.k === 'do') {
+        const more = a.cur.f(a); a.cur = null;
+        if (Array.isArray(more) && more.length) a.steps.unshift(...more);
+        continue;
+      }
+      beginStep(a, a.cur);
+    }
+    a.idleT = 0; a.stats.busy += dt;
+    if (runStep(a, a.cur, dt)) { a.cur = null; dt = 0; continue; }
+    return;
+  }
+}
+
+function idleBehavior(a, dt) {
+  a.think -= dt;
+  if (a.think <= 0) {
+    a.think = 0.35 + R() * 0.3;
+    a.idleText = '';
+    const job = JOBS[a.role](a);
+    if (job && job.length) { a.steps = job; a.idleT = 0; return; }
+    const [hx, hy] = homeFor(a);
+    if (a.tile !== idx(hx, hy) && a.state !== 'homing') {
+      a.jobLabel = 'Return to home position'; a.why = 'No work available for this role right now.';
+      a.steps = [go(hx, hy, 'Returning to post'), act(() => { a.state = 'idle'; })];
+      return;
+    }
+  }
+  a.state = 'idle'; a.progress = 0;
+  a.bubble = a.idleText || 'Waiting for work';
+  a.idleT += dt; a.stats.idle += dt;
+  if (!a.jobLabel || a.jobLabel === 'Return to home position') a.jobLabel = '';
+}
+
+/* ---------------------------------------------------------------- stock helpers */
+const distPack = l => Math.abs(l.ax - 47) + Math.abs(l.ay - 18);
+function chooseLocation(sku, qty, init = false) {
+  const cls = SKU_CLASS[sku];
+  let best = null, bs = 1e9;
+  if (!init) for (const l of S.locs) {
+    if (l.reserved || l.sku !== sku || l.qty + qty > MAXQ) continue;
+    if (l.qty < bs) { bs = l.qty; best = l; }
+  }
+  if (best) return best;
+  bs = 1e9;
+  for (const l of S.locs) {
+    if (l.reserved || l.sku) continue;
+    const d = distPack(l);
+    let s = cls === 'A' ? d : cls === 'B' ? Math.abs(d - 22) : -d;
+    if (!init && S.aisleHot[l.aisle] > S.t) s += 6;
+    s += R() * 7;
+    if (s < bs) { bs = s; best = l; }
+  }
+  return best;
+}
+function stockOf(sku) { let q = 0; for (const l of S.locs) if (l.sku === sku) q += l.qty - l.alloc; return q; }
+function rackUtil() { let n = 0; for (const l of S.locs) if (l.sku || l.reserved) n++; return n / S.locs.length; }
+function freeSpots() { return S.spots.filter(s => !s.pallet && !s.reserved).length; }
+
+/* ---------------------------------------------------------------- orders */
+function pickSku(needQty) {
+  const r = R(), cls = r < CLASS_W.A ? 'A' : r < CLASS_W.A + CLASS_W.B ? 'B' : 'C';
+  const pool = SKUS.filter(s => s.cls === cls);
+  for (let tries = 0; tries < 8; tries++) { const s = pick(pool); if (stockOf(s.id) >= needQty) return s.id; }
+  return pick(pool).id;
+}
+function newOrder(quiet = false) {
+  const r = R(), nl = r < 0.5 ? 1 : r < 0.8 ? 2 : 3;
+  const lines = [];
+  for (let i = 0; i < nl; i++) {
+    const qty = RI(1, 3);
+    const sku = pickSku(qty);
+    if (lines.some(l => l.sku === sku)) continue;
+    lines.push({ sku, qty, loc: null });
+  }
+  const o = { id: 'SO-' + (++S.seq.so), lines, carrier: pick(CARRIERS), created: S.t, released: null, status: 'new' };
+  S.m.created++;
+  if (S.mode === 'wave') { S.pending.push(o); if (!quiet) emit('ORDER_CREATE', 'order', null, `${o.id} · ${lines.length} line${lines.length > 1 ? 's' : ''} · ${o.carrier} · held for next wave`); }
+  else releaseOrder(o, quiet ? 'quiet' : 'single');
+}
+function allocate(o) {
+  const taken = [];
+  for (const ln of o.lines) {
+    let best = null;
+    for (const l of S.locs) {
+      if (l.sku !== ln.sku || l.qty - l.alloc < ln.qty) continue;
+      if (!best || l.qty - l.alloc < best.qty - best.alloc) best = l;
+    }
+    if (!best) { for (const t of taken) { t.l.alloc -= t.q; } for (const x of o.lines) x.loc = null; return false; }
+    best.alloc += ln.qty; ln.loc = best; taken.push({ l: best, q: ln.qty });
+  }
+  return true;
+}
+function releaseOrder(o, how) {
+  if (!allocate(o)) {
+    if (o.status !== 'backorder') { o.status = 'backorder'; S.backorders.push(o); if (how !== 'quiet') emit('ORDER_BACKORDER', 'order', null, `${o.id} waiting on stock (${o.lines.map(l => l.sku).join(', ')})`); }
+    return false;
+  }
+  o.status = 'released'; o.released = S.t;
+  S.pickQueue.push(o);
+  if (how === 'single') emit('ORDER_RELEASE', 'order', null, `${o.id} allocated → ${o.lines.map(l => l.loc.code).join(', ')}`);
+  return true;
+}
+function releaseWave() {
+  const batch = S.pending.splice(0, 40);
+  let ok = 0, lines = 0;
+  for (const o of batch) if (releaseOrder(o, 'wave')) { ok++; lines += o.lines.length; }
+  emit('WAVE_RELEASE', 'order', null, `Wave W-${S.seq.wave++}: ${ok} orders · ${lines} lines released to pick${ok < batch.length ? ` · ${batch.length - ok} short` : ''}`);
+}
+function newReturn() {
+  const reasons = ['wrong size', 'no longer needed', 'damaged in transit', 'duplicate order', 'defective'];
+  return { rma: 'RMA-' + (++S.seq.rma), sku: pick(SKUS).id, reason: pick(reasons) };
+}
+
+/* ---------------------------------------------------------------- trucks */
+function spawnInbound(instant = false) {
+  const n = RI(4, 8);
+  const ranked = SKUS.map(s => ({ s: s.id, r: stockOf(s.id) / (s.cls === 'A' ? 3 : s.cls === 'B' ? 1.6 : 1) + R() * 30 })).sort((a, b) => a.r - b.r);
+  const tr = { id: 'TR-' + RI(1000, 9999), asn: 'ASN-' + (++S.seq.asn), pallets: [], total: n, delivered: 0, checkedIn: false, anim: instant ? 0 : 1, departAt: 0, departing: false };
+  for (let i = 0; i < n; i++) tr.pallets.push({ lpn: 'LPN' + (++S.seq.lpn), sku: ranked[i % 12].s, qty: RI(24, 48), qc: R() < 0.2, status: 'truck' });
+  const door = S.inDoors.find(d => !d.truck);
+  if (door) { door.truck = tr; emit('TRAILER_DOCK', 'inbound', null, `${tr.id} docked at D${door.n} · ${tr.asn} · ${n} pallets expected`); }
+  else { S.yard.push(tr); emit('YARD_CHECKIN', 'inbound', null, `${tr.id} checked in at gate · waiting for a free door (${S.yard.length} in yard)`); }
+}
+function arriveOutbound(L, instant = false) {
+  L.truck = { id: 'TR-' + RI(1000, 9999), cap: RI(12, 16), loaded: 0, cartons: [], arrivedAt: S.t, anim: instant ? 0 : 1, departing: false };
+  if (!instant) emit('TRAILER_ARRIVE', 'ship', null, `${L.truck.id} spotted at D${L.door} for ${L.name} · capacity ${L.truck.cap} cartons`);
+}
+function tickTrucks(dt) {
+  if (S.t >= S.nextTruck) { spawnInbound(); S.nextTruck = S.t + (rackUtil() > 0.8 ? 150 : 75) + R() * 35; }
+  for (const d of S.inDoors) {
+    const tr = d.truck;
+    if (!tr) {
+      if (S.yard.length) { d.truck = S.yard.shift(); d.truck.anim = 1; emit('TRAILER_DOCK', 'inbound', null, `${d.truck.id} moved from yard to D${d.n} · ${d.truck.asn}`); }
+      continue;
+    }
+    if (tr.anim > 0 && !tr.departing) tr.anim = Math.max(0, tr.anim - dt / 1.5);
+    if (tr.departAt && S.t >= tr.departAt) tr.departing = true;
+    if (tr.departing) { tr.anim += dt / 1.5; if (tr.anim >= 1) d.truck = null; }
+  }
+  for (const L of S.lanes) {
+    const tr = L.truck;
+    if (!tr) { if (S.t >= L.nextTruck) arriveOutbound(L); continue; }
+    if (tr.anim > 0 && !tr.departing) tr.anim = Math.max(0, tr.anim - dt / 1.5);
+    if (!tr.departing && !L.loader && tr.loaded > 0 && (tr.loaded >= tr.cap || (S.t - tr.arrivedAt > 75 && !L.cartons.length))) {
+      tr.departing = true;
+      for (const c of tr.cartons) {
+        const o = c.order; o.status = 'shipped'; S.m.shipped++;
+        S.m.cycle.push(S.t - o.released); if (S.m.cycle.length > 30) S.m.cycle.shift();
+        S.m.shipTimes.push(S.t);
+      }
+      emit('SHIP_CONFIRM', 'ship', null, `${tr.id} sealed SEAL-${RI(10000, 99999)} · ${tr.loaded} cartons · ${L.name} via D${L.door}`);
+    }
+    if (tr.departing) { tr.anim += dt / 1.5; if (tr.anim >= 1) { L.truck = null; L.nextTruck = S.t + 6 + R() * 8; } }
+  }
+}
+
+/* ---------------------------------------------------------------- cartons & conveyor */
+function tickCartons(dt) {
+  for (const c of S.cartons) {
+    if (c.state !== 'belt') continue;
+    const L = S.lanes[c.lane];
+    let budget = 3.2 * dt;
+    while (budget > 0 && c.pi < c.pts.length) {
+      const [tx, ty] = c.pts[c.pi];
+      if (c.pi === c.pts.length - 1 && L.cartons.length >= LANE_CAP) { c.blocked = true; break; }
+      c.blocked = false;
+      const dx = tx - c.x, dy = ty - c.y, d = Math.abs(dx) + Math.abs(dy);
+      if (d <= budget) { c.x = tx; c.y = ty; budget -= d; c.pi++; }
+      else { if (dx) c.x += Math.sign(dx) * budget; else c.y += Math.sign(dy) * budget; budget = 0; }
+    }
+    if (c.pi >= c.pts.length) {
+      c.state = 'lane'; L.cartons.push(c);
+      S.fx.push({ x: 54, y: L.y, t0: S.t, ok: true, fixed: true });
+      emit('SORT_SCAN', 'ship', null, `Fixed scanner read ${c.id} → lane ${L.name} (D${L.door})`);
+    }
+  }
+  S.cartons = S.cartons.filter(c => c.state === 'belt');
+}
+
+/* ---------------------------------------------------------------- jobs */
+const JOBS = {
+  receiver(a) {
+    if (!freeSpots()) { a.idleText = 'Staging full. Holding'; return null; }
+    let best = null, bd = 1e9;
+    for (const d of S.inDoors) {
+      const tr = d.truck;
+      if (!tr || tr.anim > 0 || tr.departing) continue;
+      const p = tr.pallets.find(p => !p.claimed);
+      if (!p) continue;
+      const dist = Math.abs(a.x - 4) + Math.abs(a.y - d.y) + (tr.pallets.length - tr.pallets.filter(x => !x.claimed).length) * 3;
+      if (dist < bd) { bd = dist; best = { d, tr, p }; }
+    }
+    if (!best) return null;
+    const { d, tr, p } = best;
+    let spot = null, sd = 1e9;
+    for (const s of S.spots) if (!s.pallet && !s.reserved) { const dd = Math.abs(s.ax - 4) + Math.abs(s.ay - d.y); if (dd < sd) { sd = dd; spot = s; } }
+    p.claimed = true; spot.reserved = true;
+    a.jobLabel = `Unload ${p.lpn} from D${d.n}`;
+    a.why = `Door D${d.n} has ${tr.pallets.filter(x => !x.claimed).length + 1} unclaimed pallet(s) on ${tr.asn}. Closest free staging spot to that door is ${spot.code}.`;
+    return [
+      go(4, d.y, `To door D${d.n}`),
+      act(() => tr.checkedIn ? null : (tr.checkedIn = true, [scan(3, d.y, 'ASN_CHECKIN', 'inbound', `${tr.asn} opened · trailer ${tr.id} · ${tr.total} LPNs expected`, 'Scanning ASN')])),
+      scan(2, d.y, 'RECEIVE_SCAN', 'inbound', `${p.lpn} · ${p.sku} × ${p.qty}`, `RECEIVE_SCAN ${p.lpn}`),
+      act(() => { const i = tr.pallets.indexOf(p); if (i >= 0) tr.pallets.splice(i, 1); a.carry = { t: 'pallet', p }; }),
+      go(spot.ax, spot.ay, `Staging to ${spot.code}`),
+      scan(spot.x, spot.y, 'STAGE_CONFIRM', 'inbound', `${p.lpn} → ${spot.code}${p.qc ? ' · QC hold' : ''}`, `STAGE_CONFIRM ${spot.code}`),
+      act(() => {
+        spot.pallet = p; spot.reserved = false; a.carry = null;
+        p.status = p.qc ? 'qc' : 'ready'; p.stagedAt = S.t; tr.delivered++; a.stats.tasks++;
+        if (p.qc) emit('QC_HOLD', 'qc', null, `${p.lpn} held at ${spot.code} for sample inspection`);
+        if (tr.delivered >= tr.total) { emit('RECEIPT_CLOSE', 'inbound', a, `${tr.asn} complete · ${tr.total}/${tr.total} LPNs received · D${d.n} released`); tr.departAt = S.t + 3; }
+      }),
+    ];
+  },
+
+  qc(a) {
+    const spot = S.spots.find(s => s.pallet && s.pallet.status === 'qc' && !s.pallet.qcClaim);
+    if (!spot) return null;
+    const p = spot.pallet; p.qcClaim = true;
+    a.jobLabel = `Inspect ${p.lpn}`;
+    a.why = `${p.lpn} is on QC hold at ${spot.code}. One in five inbound pallets is sampled, and putaway skips held pallets.`;
+    return [
+      go(spot.ax, spot.ay, `To ${spot.code}`),
+      scan(spot.x, spot.y, 'QC_START', 'qc', `${p.lpn} · ${p.sku} × ${p.qty}`, 'Scanning pallet LPN'),
+      work(3.5, 'Inspecting: count, damage, labels'),
+      act(() => {
+        if (R() < 0.9) { p.status = 'ready'; p.stagedAt = S.t; a.stats.tasks++; emit('QC_PASS', 'qc', a, `${p.lpn} passed · released to putaway`); return null; }
+        emit('QC_FAIL', 'alert', a, `${p.lpn} crushed cartons found · moving to quarantine`);
+        return [
+          act(() => { spot.pallet = null; a.carry = { t: 'pallet', p }; p.status = 'hold'; }),
+          go(QTN.ax, QTN.ay, 'To quarantine cage'),
+          scan(QTN.x, QTN.y, 'QUARANTINE', 'qc', `${p.lpn} → QTN cage · vendor claim opened`, 'Scanning cage location'),
+          act(() => { a.carry = null; S.quarantine++; a.stats.tasks++; }),
+        ];
+      }),
+    ];
+  },
+
+  forklift(a) {
+    let spot = null;
+    for (const s of S.spots) { const p = s.pallet; if (p && p.status === 'ready' && !p.fClaim && (!spot || p.stagedAt < spot.pallet.stagedAt)) spot = s; }
+    if (!spot) return null;
+    const p = spot.pallet; p.fClaim = true;
+    a.jobLabel = `Put away ${p.lpn}`;
+    a.why = `${p.lpn} is the oldest pallet released for putaway (FIFO from staging).`;
+    return [
+      go(spot.ax, spot.ay, `To ${spot.code}`),
+      act(() => {
+        const loc = chooseLocation(p.sku, p.qty);
+        if (!loc) { p.fClaim = false; emit('NO_LOCATION', 'alert', a, `No rack space for ${p.sku}. Putaway paused`); return null; }
+        loc.reserved = true;
+        const cls = SKU_CLASS[p.sku];
+        a.why = loc.sku ? `WMS topped off ${loc.code}, which already holds ${p.sku}, instead of opening a new location.`
+          : `${p.sku} is a class ${cls} mover, so the WMS slots it ${cls === 'A' ? 'close to the pack line' : cls === 'B' ? 'mid-distance' : 'in the far aisles'}: ${loc.code}.`;
+        return [
+          scan(spot.x, spot.y, 'PUTAWAY_START', 'storage', `${p.lpn} · WMS directs → ${loc.code}${loc.sku ? ' (top-off)' : ''}`, 'Scanning pallet LPN'),
+          act(() => { spot.pallet = null; a.carry = { t: 'pallet', p }; p.status = 'moving'; }),
+          go(loc.ax, loc.ay, `Putaway to ${loc.code}`),
+          scan(loc.x, loc.y, 'PUTAWAY_CONFIRM', 'storage', `${p.lpn} → ${loc.code} · ${p.sku} × ${p.qty}`, `PUTAWAY_CONFIRM ${loc.code}`),
+          act(() => {
+            if (loc.sku === p.sku) loc.qty += p.qty; else { loc.sku = p.sku; loc.qty = p.qty; }
+            loc.reserved = false; a.carry = null; p.status = 'stored'; a.stats.tasks++;
+          }),
+        ];
+      }),
+    ];
+  },
+
+  picker(a) {
+    if (!S.pickQueue.length) return null;
+    const n = Math.min(3, S.pickQueue.length);
+    const batch = S.pickQueue.splice(0, n);
+    const bid = 'B-' + (++S.seq.batch);
+    for (const o of batch) { o.tote = 'T-' + (++S.seq.tote); o.status = 'picking'; }
+    const lines = batch.flatMap(o => o.lines.map(l => ({ ...l, o })));
+    const desc = a.x > 30;
+    const aisles = [...new Set(lines.map(l => l.loc.aisle))].sort((p, q) => desc ? q - p : p - q);
+    const seq = [];
+    aisles.forEach((k, i) => {
+      const inA = lines.filter(l => l.loc.aisle === k).sort((p, q) => (i % 2 === 0 ? 1 : -1) * (p.loc.y - q.loc.y));
+      seq.push(...inA);
+    });
+    a.jobLabel = `Pick batch ${bid} (${n} orders, ${lines.length} lines)`;
+    a.why = `${n} released order(s) at the front of the pick queue. Cart holds 3 totes, one per order. S-shape route: aisle ${aisles.map(k => AISLES[k]).join(' → ')}.`;
+    a.carry = { t: 'cart', totes: n, items: 0 };
+    const steps = [scan(a.x + a.face.x, a.y + a.face.y, 'TOTE_ASSIGN', 'pick', `${bid} · ${batch.map(o => `${o.id}→${o.tote}`).join(', ')}`, 'Scanning cart totes')];
+    for (const L of seq) {
+      const loc = L.loc;
+      const wrong = S.locs.find(x => x.aisle === loc.aisle && Math.abs(x.y - loc.y) === 1 && x.x === loc.x);
+      steps.push(
+        go(loc.ax, loc.ay, `To ${loc.code}`),
+        scan(loc.x, loc.y, 'LOC_SCAN', 'pick', `${loc.code} confirmed`, `Scan location ${loc.code}`, { wrongP: 0.02, wrongText: `Scanned ${wrong ? wrong.code : 'neighbour slot'} instead of ${loc.code}` }),
+        scan(loc.x, loc.y, 'PICK_CONFIRM', 'pick', `${L.sku} × ${L.qty} → ${L.o.tote} (${L.o.id})`, `Pick ${L.sku} × ${L.qty}`),
+        act(() => {
+          loc.qty -= L.qty; loc.alloc -= L.qty;
+          a.carry.items += L.qty; S.m.pickTimes.push(S.t);
+          if (loc.qty <= 0 && loc.alloc <= 0 && !loc.reserved) { loc.qty = 0; loc.alloc = 0; loc.sku = null; emit('LOC_EMPTY', 'storage', a, `${loc.code} picked clean · open for putaway`); }
+        }),
+      );
+    }
+    steps.push(act(() => {
+      let staffed = S.stations.filter(s => s.packer);
+      if (!staffed.length) staffed = S.stations;
+      let st = staffed[0];
+      for (const s of staffed) if (s.queue.length + s.inbound < st.queue.length + st.inbound) st = s;
+      st.inbound += n;
+      a.why = `Picks done. Pack ${st.n} has the shortest queue among open benches (${st.queue.length + st.inbound - n} totes).`;
+      return [
+        go(st.dx, st.y, `To pack ${st.n}`),
+        scan(st.dx + 1, st.y, 'TOTE_DROP', 'pick', `${n} tote${n > 1 ? 's' : ''} → pack ${st.n} (${batch.map(o => o.tote).join(', ')})`, `TOTE_DROP pack ${st.n}`),
+        act(() => {
+          for (const o of batch) { st.queue.push({ id: o.tote, order: o }); o.status = 'queued'; }
+          st.inbound -= n; a.carry = null; a.stats.tasks++;
+        }),
+      ];
+    }));
+    return steps;
+  },
+
+  packer(a) {
+    const st = a.station;
+    if (!st) return null;
+    if (a.tile !== idx(st.sx, st.y)) return [go(st.sx, st.y, `To pack ${st.n}`)];
+    if (!st.queue.length) { a.idleText = `Pack ${st.n}: waiting for totes`; return null; }
+    const tote = st.queue.shift(), o = tote.order;
+    const L = S.lanes[CARRIERS.indexOf(o.carrier)];
+    const cid = 'CTN-' + (++S.seq.ctn);
+    a.jobLabel = `Pack ${o.id} at pack ${st.n}`;
+    a.why = `${tote.id} is next in pack ${st.n}'s queue (${st.queue.length} behind it). Every item is re-scanned to verify the order.`;
+    const steps = [act(() => { st.busy = true; }), scan(st.bx, st.y, 'PACK_START', 'pack', `${tote.id} · ${o.id} · ${o.lines.length} line${o.lines.length > 1 ? 's' : ''}`, 'Scanning tote')];
+    for (const l of o.lines) steps.push(scan(st.bx, st.y, 'PACK_VERIFY', 'pack', `${l.sku} × ${l.qty} verified for ${o.id}`, `Verify ${l.sku}`));
+    steps.push(
+      work(2.2 + o.lines.length * 0.7, 'Boxing, dunnage, taping'),
+      scan(st.bx, st.y, 'LABEL_APPLY', 'pack', `${cid} · ${o.carrier} label · ${(0.4 + R() * 6).toFixed(1)} kg`, 'Label & scan carton'),
+      act(() => {
+        st.busy = false; o.status = 'packed'; a.stats.tasks++;
+        S.cartons.push({ id: cid, order: o, lane: L.i, x: 52, y: st.y, pi: 0, pts: [[53, st.y], [53, L.y], [54, L.y]], state: 'belt' });
+      }),
+    );
+    return steps;
+  },
+
+  loader(a) {
+    let best = null;
+    for (const L of S.lanes) {
+      const tr = L.truck;
+      if (L.loader || !L.cartons.length || !tr || tr.departing || tr.anim > 0 || tr.loaded >= tr.cap) continue;
+      if (!best || L.cartons.length > best.cartons.length) best = L;
+    }
+    if (!best) return null;
+    const L = best; L.loader = a;
+    let count = 0;
+    a.jobLabel = `Load lane ${L.name} → D${L.door}`;
+    a.why = `Lane ${L.name} has the most cartons waiting (${L.cartons.length}) and trailer ${L.truck.id} has room.`;
+    const loop = () => {
+      const tr = L.truck;
+      if (count >= 6 || !L.cartons.length || !tr || tr.departing || tr.loaded >= tr.cap) { L.loader = null; a.stats.tasks++; return null; }
+      const c = L.cartons.shift(); count++;
+      return [
+        scan(59, L.y, 'LOAD_SCAN', 'ship', `${c.id} → trailer ${tr.id} (${tr.loaded + 1}/${tr.cap})`, `LOAD_SCAN ${c.id}`),
+        act(() => { a.carry = { t: 'carton' }; }),
+        go(61, L.y, 'Into trailer'),
+        work(0.7, 'Stacking in trailer'),
+        act(() => { a.carry = null; tr.loaded++; tr.cartons.push(c); }),
+        go(60, L.y, 'Back to lane'),
+        act(loop),
+      ];
+    };
+    return [go(60, L.y, `To lane ${L.name}`), act(loop)];
+  },
+
+  inventory(a) {
+    if (R() < 0.3) { a.idleText = 'Reviewing count tasks on RF'; return null; }
+    let l = null;
+    for (let i = 0; i < 25; i++) { const c = pick(S.locs); if (c.sku && !c.reserved && c.alloc === 0 && S.t - c.lastCount > 90) { l = c; break; } }
+    if (!l) return null;
+    l.reserved = true;
+    a.jobLabel = `Cycle count ${l.code}`;
+    a.why = `${l.code} (${l.sku}) is due for a count and has no open picks against it, so counting will not collide with picking.`;
+    return [
+      go(l.ax, l.ay, `To ${l.code}`),
+      scan(l.x, l.y, 'CC_LOC_SCAN', 'inv', `${l.code} · blind count task opened`, `Scan ${l.code}`),
+      work(2.2, 'Counting units'),
+      act(() => {
+        const sys = l.qty;
+        let cnt = sys;
+        if (R() < 0.07) cnt = Math.max(l.alloc, sys + pick([-2, -1, 1, 2]));
+        return [
+          scan(l.x, l.y, 'CYCLE_COUNT', 'inv', cnt === sys ? `${l.code} ${l.sku}: counted ${cnt} = system ✓` : `${l.code} ${l.sku}: counted ${cnt}, system ${sys}`, 'Entering count'),
+          act(() => {
+            if (cnt !== sys) {
+              l.qty = cnt;
+              emit('INV_ADJUST', 'alert', a, `${l.code} ${l.sku} adjusted ${cnt - sys > 0 ? '+' : ''}${cnt - sys} · variance sent to supervisor`);
+              const sup = S.agents.find(x => x.role === 'supervisor');
+              sup.radio = { text: `Reviewing variance at ${l.code}`, until: S.t + 4 };
+            }
+            if (l.qty <= 0 && l.alloc <= 0) { l.qty = 0; l.sku = null; }
+            l.reserved = false; l.lastCount = S.t; a.stats.tasks++;
+          }),
+        ];
+      }),
+    ];
+  },
+
+  returns(a) {
+    if (!S.returns.length) { a.idleText = 'Returns desk: no RMAs waiting'; return null; }
+    const r = S.returns.shift();
+    a.jobLabel = `Process ${r.rma}`;
+    a.why = `${r.rma} is the oldest customer return on the desk (${S.returns.length} more waiting).`;
+    return [
+      go(7, 32, 'To returns desk'),
+      scan(7, 31, 'RMA_RECEIVE', 'returns', `${r.rma} · ${r.sku} × 1 · reason: ${r.reason}`, 'Scanning RMA label'),
+      work(2.6, 'Inspecting and grading'),
+      act(() => {
+        if (R() < 0.75) {
+          const loc = chooseLocation(r.sku, 1);
+          if (loc) {
+            loc.reserved = true;
+            emit('RETURN_GRADE', 'returns', a, `${r.rma} graded A · restock to ${loc.code}`);
+            return [
+              act(() => { a.carry = { t: 'tote' }; }),
+              go(loc.ax, loc.ay, `Restocking ${loc.code}`),
+              scan(loc.x, loc.y, 'RETURN_PUTAWAY', 'returns', `${r.sku} × 1 → ${loc.code}`, `Scan ${loc.code}`),
+              act(() => { if (loc.sku !== r.sku) { loc.sku = r.sku; loc.qty = 0; } loc.qty += 1; loc.reserved = false; a.carry = null; a.stats.tasks++; }),
+            ];
+          }
+        }
+        emit('RETURN_GRADE', 'returns', a, `${r.rma} graded damaged · to RTV cage`);
+        return [
+          act(() => { a.carry = { t: 'tote' }; }),
+          go(QTN.ax, QTN.ay, 'To RTV cage'),
+          scan(QTN.x, QTN.y, 'DISPOSITION', 'returns', `${r.rma} → RTV cage (return to vendor)`, 'Scanning cage'),
+          act(() => { a.carry = null; S.quarantine++; a.stats.tasks++; }),
+        ];
+      }),
+    ];
+  },
+
+  supervisor(a) {
+    const WP = [
+      { x: 11, y: 12, l: 'receiving' }, { x: 11, y: 27, l: 'QC and returns' }, { x: 24, y: 18, l: 'cross aisle' },
+      { x: 40, y: 18, l: 'cross aisle east' }, { x: 46, y: 10, l: 'pack line' }, { x: 46, y: 26, l: 'pack line' },
+      { x: 57, y: 33, l: 'equipment bay' }, { x: 30, y: 34, l: 'south aisle' }, { x: 30, y: 2, l: 'north aisle' }, { x: 60, y: 18, l: 'loading lanes' },
+    ];
+    let wp;
+    if (S.attention) { wp = S.attention; S.attention = null; }
+    else wp = pick(WP);
+    a.jobLabel = `Floor walk: ${wp.l}`;
+    a.why = 'Supervisor walks the floor while the WMS feeds live queue depths, aisle traffic and dock status. Alerts pull the walk toward the problem area.';
+    return [go(wp.x, wp.y, `Walking to ${wp.l}`), work(2.5 + R() * 2, `Observing ${wp.l}`)];
+  },
+};
+
+/* ---------------------------------------------------------------- supervisor logic */
+function reassign(a, role, why) {
+  const from = a.role;
+  if (a.role === 'packer' && a.station) { a.station.packer = null; a.station = null; }
+  a.role = role; a.steps = []; a.cur = null; a.idleT = 0;
+  if (role === 'loader') a.laneHome = a.id;
+  const sup = S.agents.find(x => x.role === 'supervisor');
+  sup.radio = { text: `Radio → ${a.code}: ${why}`, until: S.t + 5 };
+  emit('LABOR_REASSIGN', 'sup', sup, `${a.name}: ${ROLES[from].label} → ${ROLES[role].label} · ${why}`);
+}
+function cool(key, sec) { if ((S.cool[key] || 0) > S.t) return false; S.cool[key] = S.t + sec; return true; }
+
+function supervise() {
+  const sup = S.agents.find(x => x.role === 'supervisor');
+  const idle = role => S.agents.filter(x => x.role === role && !x.cur && !x.steps.length && x.idleT > 1.5);
+  // aisle congestion
+  const counts = new Array(9).fill(0);
+  for (const a of S.agents) { const k = aisleOf[a.tile]; if (k >= 0) counts[k]++; }
+  counts.forEach((n, k) => {
+    if (n >= 3 && S.aisleHot[k] < S.t) {
+      S.aisleHot[k] = S.t + 25;
+      emit('CONGESTION', 'alert', sup, `Aisle ${AISLES[k]}: ${n} workers inside · new pick routes steer around it for 25 min`);
+      sup.radio = { text: `Aisle ${AISLES[k]} congested. Re-routing`, until: S.t + 4 };
+      S.attention = { x: 12 + 4 * k, y: 18, l: `aisle ${AISLES[k]}` };
+    }
+  });
+  // pack backlog → open a closed bench
+  const staffed = S.stations.filter(s => s.packer);
+  const queued = S.stations.reduce((n, s) => n + s.queue.length + s.inbound, 0);
+  const closedSt = S.stations.find(s => !s.packer);
+  if (closedSt && queued >= Math.max(1, staffed.length) * 3 && cool('pack', 10)) {
+    const cand = idle('picker')[0] || (S.pickQueue.length < 3 ? S.agents.find(x => x.role === 'picker' && !x.cur && !x.steps.length) : null);
+    if (cand) {
+      reassign(cand, 'packer', `open pack ${closedSt.n}, ${queued} totes queued`);
+      cand.station = closedSt; closedSt.packer = cand;
+      S.attention = { x: 46, y: closedSt.y, l: `pack ${closedSt.n}` };
+    } else if (cool('packAlert', 30)) emit('PACK_BACKLOG', 'alert', sup, `${queued} totes queued on ${staffed.length} open benches · no idle picker to move yet`);
+  }
+  // pick backlog → idle receivers help picking
+  if (S.pickQueue.length >= 10 && cool('pick', 14)) {
+    const inboundWaiting = S.inDoors.some(d => d.truck && d.truck.pallets.some(p => !p.claimed));
+    const cand = !inboundWaiting && idle('receiver')[0];
+    if (cand) reassign(cand, 'picker', `${S.pickQueue.length} orders waiting to pick`);
+  }
+  // outbound backlog → help loading
+  const laneTotal = S.lanes.reduce((n, L) => n + L.cartons.length, 0);
+  if (laneTotal >= 14 && cool('load', 14)) {
+    const cand = idle('receiver')[0] || idle('picker')[0];
+    if (cand) reassign(cand, 'loader', `${laneTotal} cartons sitting in lanes`);
+  }
+  // dock backpressure / yard queue
+  const free = freeSpots();
+  if (free <= 2 && cool('stage', 40)) emit('DOCK_BACKPRESSURE', 'alert', sup, `Staging ${S.spots.length - free}/${S.spots.length} full · receivers hold, forklifts clear staging first`);
+  if (S.yard.length && cool('yard', 40)) emit('YARD_QUEUE', 'alert', sup, `${S.yard.length} trailer(s) waiting in yard · every inbound door is busy`);
+  if (S.backorders.length >= 3 && cool('bo', 45)) emit('SHORTAGE', 'alert', sup, `${S.backorders.length} orders backordered · waiting on inbound stock`);
+  // send borrowed workers back once they sit idle
+  for (const a of S.agents) {
+    if (a.role === a.baseRole || a.cur || a.steps.length || a.idleT < 8) continue;
+    if (a.role === 'packer' && a.station && (a.station.queue.length || a.station.inbound)) continue;
+    const from = a.role;
+    if (a.station) { a.station.packer = null; a.station = null; }
+    a.role = a.baseRole; a.idleT = 0;
+    emit('LABOR_REASSIGN', 'sup', sup, `${a.name} back to ${ROLES[a.baseRole].label} (${ROLES[from].label} demand dropped)`);
+  }
+}
+
+/* ---------------------------------------------------------------- sim tick */
+function step(dt) {
+  S.t += dt;
+  if (S.t >= S.nextOrder) {
+    newOrder();
+    const mean = 3.3 * (1 - 0.3 * Math.sin(S.t / 110));
+    S.nextOrder = S.t + expRand(mean);
+  }
+  if (S.mode === 'wave' && S.t >= S.nextWave) { if (S.pending.length) releaseWave(); S.nextWave = S.t + 40; }
+  if (S.t >= S.nextBackorder) {
+    S.nextBackorder = S.t + 5;
+    const bo = S.backorders.splice(0);
+    for (const o of bo) { o.status = 'retry'; if (!releaseOrder(o, 'quiet')) { /* stays */ } else emit('ORDER_RELEASE', 'order', null, `${o.id} stock arrived · released`); }
+  }
+  if (S.t >= S.nextReturn) { S.returns.push(newReturn()); S.nextReturn = S.t + 20 + R() * 25; const r = S.returns[S.returns.length - 1]; emit('RMA_ARRIVE', 'returns', null, `${r.rma} parcel delivered to returns desk`); }
+  if (S.t >= S.nextSup) { S.nextSup = S.t + 2; supervise(); }
+  tickTrucks(dt);
+  tickCartons(dt);
+  for (const a of S.agents) tickAgent(a, dt);
+  S.fx = S.fx.filter(f => S.t - f.t0 < 0.8);
+  const cut = S.t - 60;
+  while (S.m.pickTimes.length && S.m.pickTimes[0] < cut) S.m.pickTimes.shift();
+  while (S.m.shipTimes.length && S.m.shipTimes[0] < cut) S.m.shipTimes.shift();
+}
+
+/* ---------------------------------------------------------------- rendering */
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d'), wrap = document.getElementById('wrap');
+let T = 16, DPR = 1, C = {};
+function readTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  for (const k of ['bg','panel','panel2','ink','muted','line','floor','yard','wall','rack','stock','mark','good','bad','accent','zone-a'])
+    C[k] = cs.getPropertyValue('--' + k).trim();
+  C.za = parseFloat(C['zone-a']) || 0.06;
+  C.dark = cs.colorScheme === 'dark' || cs.getPropertyValue('color-scheme').includes('dark');
+}
+function resize() {
+  const w = wrap.clientWidth;
+  T = Math.max(10, w / W);
+  DPR = window.devicePixelRatio || 1;
+  cv.style.width = W * T + 'px'; cv.style.height = H * T + 'px';
+  cv.width = Math.round(W * T * DPR); cv.height = Math.round(H * T * DPR);
+}
+const hexA = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, w, h, r) : ctx.rect(x, y, w, h); }
+const PALLET = '#B8895A', WRAP = '#E7D8BD', KRAFT = '#C9A06A';
+
+function drawPallet(px, py, s, hold) {
+  ctx.fillStyle = PALLET; rr(px - s / 2, py - s / 2, s, s, 2); ctx.fill();
+  ctx.fillStyle = WRAP; rr(px - s * 0.36, py - s * 0.36, s * 0.72, s * 0.72, 2); ctx.fill();
+  ctx.strokeStyle = hexA('#7A5530', 0.55); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(px - s * 0.36, py); ctx.lineTo(px + s * 0.36, py); ctx.moveTo(px, py - s * 0.36); ctx.lineTo(px, py + s * 0.36); ctx.stroke();
+  if (hold) { ctx.strokeStyle = C.bad; ctx.lineWidth = 2; ctx.setLineDash([3, 2]); rr(px - s / 2 - 2, py - s / 2 - 2, s + 4, s + 4, 3); ctx.stroke(); ctx.setLineDash([]); }
+}
+function label(text, x, y, size, color, align = 'left', weight = 600, font = 'cond') {
+  ctx.font = `${weight} ${size}px ${font === 'cond' ? '"Barlow Condensed", "Arial Narrow", sans-serif' : font === 'mono' ? '"JetBrains Mono", Consolas, monospace' : 'Barlow, "Segoe UI", sans-serif'}`;
+  ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillText(text, x, y);
+}
+
+function draw() {
+  const t = S.t;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.fillStyle = C.yard; ctx.fillRect(0, 0, W * T, H * T);
+  // yard striping
+  ctx.strokeStyle = hexA(C.dark ? '#ffffff' : '#000000', 0.06); ctx.lineWidth = 1;
+  for (let y = 2; y < 36; y += 1) { ctx.beginPath(); ctx.moveTo(0, y * T); ctx.lineTo(3 * T, y * T); ctx.moveTo(63 * T, y * T); ctx.lineTo(66 * T, y * T); ctx.stroke(); }
+  // building floor
+  ctx.fillStyle = C.floor; ctx.fillRect(4 * T, 2 * T, 58 * T, 34 * T);
+  // zones
+  for (const key of ['receiving','qc','returns','pack','outbound','office','equip']) {
+    const z = ZONES[key]; const x0 = Math.max(z.x, 4), x1 = Math.min(z.x + z.w, 62);
+    ctx.fillStyle = hexA(z.tint, C.za); ctx.fillRect(x0 * T, z.y * T, (x1 - x0) * T, z.h * T);
+  }
+  for (const key of ['receiving','qc','returns','storage','pack','outbound','office','equip']) {
+    const z = ZONES[key]; label(z.label, (Math.max(z.x, 4) + 0.3) * T, (z.y + 0.45) * T, Math.max(9, T * 0.62), C.muted, 'left', 700);
+  }
+  // walkway markings
+  ctx.strokeStyle = hexA(C.mark, 0.75); ctx.lineWidth = Math.max(1.5, T * 0.09);
+  ctx.setLineDash([T * 0.6, T * 0.35]);
+  for (const y of [17, 20]) { ctx.beginPath(); ctx.moveTo(12 * T, y * T); ctx.lineTo(46 * T, y * T); ctx.stroke(); }
+  ctx.beginPath(); ctx.moveTo(11.5 * T, 3 * T); ctx.lineTo(11.5 * T, 35 * T); ctx.moveTo(46.5 * T, 3 * T); ctx.lineTo(46.5 * T, 35 * T); ctx.stroke();
+  ctx.setLineDash([]);
+  // congested aisles
+  for (let k = 0; k < 9; k++) if (S.aisleHot[k] > t) {
+    const a = 0.12 + 0.08 * Math.sin(t * 5);
+    ctx.fillStyle = hexA('#DC2626', a); ctx.fillRect((12 + 4 * k) * T, 4 * T, 2 * T, 29 * T);
+    label('CONGESTED', (13 + 4 * k) * T, 18.5 * T, Math.max(9, T * 0.55), '#DC2626', 'center', 700);
+  }
+  // racks
+  for (let p = 0; p < 8; p++) {
+    const px = 14 + 4 * p;
+    for (const [y0, y1] of [[4, 16], [20, 32]]) {
+      ctx.fillStyle = hexA(C.rack, C.dark ? 0.28 : 0.14);
+      ctx.fillRect(px * T, y0 * T, 2 * T, (y1 - y0 + 1) * T);
+      ctx.strokeStyle = C.rack; ctx.lineWidth = 1.5;
+      ctx.strokeRect(px * T + 0.75, y0 * T + 0.75, 2 * T - 1.5, (y1 - y0 + 1) * T - 1.5);
+      ctx.beginPath(); ctx.moveTo((px + 1) * T, y0 * T); ctx.lineTo((px + 1) * T, (y1 + 1) * T); ctx.stroke();
+    }
+  }
+  for (const l of S.locs) {
+    const x = l.x * T, y = l.y * T, inset = Math.max(1.5, T * 0.14);
+    if (l.sku) {
+      const f = Math.min(1, l.qty / 60);
+      ctx.fillStyle = hexA(C.rack, 0.3 + 0.6 * f);
+      ctx.fillRect(x + inset, y + inset, T - inset * 2, T - inset * 2);
+      if (SKU_CLASS[l.sku] === 'A') { ctx.fillStyle = C.mark; ctx.fillRect(x + inset, y + inset, Math.max(2, T * 0.14), T - inset * 2); }
+    }
+    if (l.reserved) { ctx.strokeStyle = C.mark; ctx.lineWidth = 2; ctx.strokeRect(x + 1.5, y + 1.5, T - 3, T - 3); }
+    ctx.strokeStyle = hexA(C.rack, 0.35); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, y + T); ctx.lineTo(x + T, y + T); ctx.stroke();
+  }
+  for (let k = 0; k < 9; k++) {
+    const cx = (13 + 4 * k) * T;
+    for (const yy of [3, 33]) {
+      ctx.fillStyle = C.panel; ctx.strokeStyle = C.rack; ctx.lineWidth = 1;
+      rr(cx - T * 0.55, (yy + 0.1) * T, T * 1.1, T * 0.8, 3); ctx.fill(); ctx.stroke();
+      label(AISLES[k], cx, (yy + 0.52) * T, Math.max(9, T * 0.62), C.ink, 'center', 700);
+    }
+  }
+  // staging spots
+  for (const s of S.spots) {
+    ctx.strokeStyle = hexA(C.mark, 0.8); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.strokeRect(s.x * T + 1.5, s.y * T + 1.5, T - 3, T - 3); ctx.setLineDash([]);
+    if (s.reserved && !s.pallet) { ctx.fillStyle = hexA(C.mark, 0.18); ctx.fillRect(s.x * T + 2, s.y * T + 2, T - 4, T - 4); }
+    if (s.pallet) drawPallet((s.x + 0.5) * T, (s.y + 0.5) * T, T * 0.8, s.pallet.status === 'qc');
+  }
+  // QC bench, quarantine cage, returns desk, supervisor desk
+  const bench = (x, y, w, h, txt, col) => { ctx.fillStyle = C.panel; ctx.strokeStyle = col; ctx.lineWidth = 1.5; rr(x * T + 1, y * T + 2, w * T - 2, h * T - 4, 3); ctx.fill(); ctx.stroke(); label(txt, (x + w / 2) * T, (y + h / 2) * T, Math.max(8, T * 0.55), col, 'center', 700); };
+  bench(6, 25, 2, 1, 'QC BENCH', '#16A34A');
+  bench(6, 31, 3, 1, `RMA DESK · ${S.returns.length}`, '#A16207');
+  bench(49, 33, 2, 1, 'SUPV', '#E11D48');
+  ctx.save(); ctx.beginPath(); ctx.rect(9 * T, 24 * T, 2 * T, 2 * T); ctx.clip();
+  ctx.fillStyle = hexA(C.bad, 0.1); ctx.fillRect(9 * T, 24 * T, 2 * T, 2 * T);
+  ctx.strokeStyle = hexA(C.bad, 0.45); ctx.lineWidth = 1;
+  for (let i = -2; i < 5; i++) { ctx.beginPath(); ctx.moveTo((9 + i * 0.5) * T, 26 * T); ctx.lineTo((11 + i * 0.5) * T, 24 * T); ctx.stroke(); }
+  ctx.restore();
+  ctx.strokeStyle = C.bad; ctx.lineWidth = 1.5; ctx.strokeRect(9 * T + 1, 24 * T + 1, 2 * T - 2, 2 * T - 2);
+  label(`QTN ${S.quarantine}`, 10 * T, 25 * T, Math.max(8, T * 0.55), C.bad, 'center', 700);
+  // chargers & cart parking
+  for (const [x, y] of HOMES.forklift) { ctx.strokeStyle = hexA('#CA8A04', 0.8); ctx.lineWidth = 1; ctx.setLineDash([2, 2]); ctx.strokeRect(x * T + 1, y * T + 1, T - 2, T - 2); ctx.setLineDash([]); label('CHG', (x + 0.5) * T, (y + 1.35) * T, Math.max(7, T * 0.45), C.muted, 'center', 600); }
+  // pack stations
+  for (const st of S.stations) {
+    const open = !!st.packer;
+    ctx.fillStyle = open ? C.panel : C.panel2; ctx.strokeStyle = open ? '#DB2777' : C.line; ctx.lineWidth = 1.5;
+    rr(49 * T + 1, st.y * T + 2, 2 * T - 2, T - 4, 3); ctx.fill(); ctx.stroke();
+    label(`P${st.n}${open ? '' : ' closed'}`, 50 * T, (st.y + 0.5) * T, Math.max(8, T * 0.55), open ? '#DB2777' : C.muted, 'center', 700);
+    if (st.busy) { ctx.fillStyle = KRAFT; ctx.fillRect(49.2 * T, (st.y + 0.25) * T, T * 0.4, T * 0.5); }
+    const q = st.queue.length;
+    for (let i = 0; i < Math.min(q, 6); i++) { ctx.fillStyle = '#2563EB'; rr((47.2 + i * 0.5) * T, (st.y - 0.72) * T, T * 0.4, T * 0.4, 2); ctx.fill(); }
+    if (q > 6) label(`+${q - 6}`, 50.3 * T, (st.y - 0.52) * T, Math.max(8, T * 0.5), C.muted, 'left', 700);
+  }
+  // conveyor
+  const belt = (x, y, w, h) => { ctx.fillStyle = C.dark ? '#26313B' : '#C9D1D8'; ctx.fillRect(x * T, y * T, w * T, h * T); };
+  belt(53.15, 3, 0.7, 29);
+  for (const st of S.stations) belt(52, st.y + 0.15, 1.5, 0.7);
+  ctx.strokeStyle = hexA(C.dark ? '#ffffff' : '#000000', 0.12); ctx.lineWidth = 1;
+  const off = (t * 2) % 0.5;
+  for (let y = 3 + off; y < 32; y += 0.5) { ctx.beginPath(); ctx.moveTo(53.15 * T, y * T); ctx.lineTo(53.85 * T, y * T); ctx.stroke(); }
+  // lanes
+  for (const L of S.lanes) {
+    belt(54, L.y + 0.1, 6, 0.8);
+    for (let x = 54; x < 60; x += 0.34) { ctx.beginPath(); ctx.moveTo(x * T, (L.y + 0.1) * T); ctx.lineTo(x * T, (L.y + 0.9) * T); ctx.stroke(); }
+    label(L.name, 57 * T, (L.y - 0.35) * T, Math.max(8, T * 0.52), C.muted, 'center', 700);
+    // fixed scanner post
+    ctx.fillStyle = C.ink; ctx.fillRect(54 * T, (L.y - 0.2) * T, T * 0.35, T * 0.3);
+    L.cartons.forEach((c, i) => {
+      const x = 59.55 - i * 0.5;
+      ctx.fillStyle = KRAFT; ctx.strokeStyle = '#8A6A3E'; ctx.lineWidth = 1;
+      ctx.fillRect((x - 0.2) * T, (L.y + 0.3) * T, T * 0.4, T * 0.4); ctx.strokeRect((x - 0.2) * T, (L.y + 0.3) * T, T * 0.4, T * 0.4);
+    });
+  }
+  for (const c of S.cartons) {
+    ctx.fillStyle = KRAFT; ctx.strokeStyle = c.blocked ? C.bad : '#8A6A3E'; ctx.lineWidth = c.blocked ? 2 : 1;
+    ctx.fillRect((c.x + 0.3) * T, (c.y + 0.3) * T, T * 0.4, T * 0.4); ctx.strokeRect((c.x + 0.3) * T, (c.y + 0.3) * T, T * 0.4, T * 0.4);
+  }
+  // walls
+  ctx.strokeStyle = C.wall; ctx.lineWidth = Math.max(3, T * 0.22);
+  ctx.strokeRect(4 * T, 2 * T, 58 * T, 34 * T);
+  for (const d of S.inDoors) {
+    ctx.fillStyle = C.floor; ctx.fillRect(3.7 * T, d.y * T + 1, T * 0.6, T - 2);
+    ctx.fillStyle = hexA(C.mark, 0.9); ctx.fillRect(3.85 * T, d.y * T + 2, T * 0.3, T - 4);
+    label(`D${d.n}`, 4.55 * T, (d.y - 0.35) * T, Math.max(8, T * 0.5), C.muted, 'left', 700);
+  }
+  for (const L of S.lanes) {
+    ctx.fillStyle = C.floor; ctx.fillRect(61.7 * T, L.y * T + 1, T * 0.6, T - 2);
+    ctx.fillStyle = hexA(C.mark, 0.9); ctx.fillRect(61.85 * T, L.y * T + 2, T * 0.3, T - 4);
+    label(`D${L.door}`, 61.45 * T, (L.y - 0.35) * T, Math.max(8, T * 0.5), C.muted, 'right', 700);
+  }
+  // trucks
+  const truck = (x0, y, dir, tr, fillN, cap, contents) => {
+    const off = tr.anim * 3.2 * dir;
+    ctx.save(); ctx.globalAlpha = 1 - tr.anim * 0.8;
+    const x = x0 + off;
+    ctx.fillStyle = C.panel; ctx.strokeStyle = C.wall; ctx.lineWidth = 1.5;
+    rr(x * T, (y - 0.45) * T, 2.8 * T, 1.9 * T, 3); ctx.fill(); ctx.stroke();
+    // cab stub
+    ctx.fillStyle = C.wall; rr((dir < 0 ? x - 0.35 : x + 2.8) * T, (y - 0.1) * T, 0.35 * T, 1.2 * T, 2); ctx.fill();
+    contents(x);
+    label(tr.id, (x + 1.4) * T, (y + 1.22) * T, Math.max(7, T * 0.45), C.muted, 'center', 600, 'mono');
+    ctx.restore();
+  };
+  for (const d of S.inDoors) if (d.truck) {
+    const tr = d.truck;
+    truck(0.1, d.y, -1, tr, 0, 0, x => {
+      tr.pallets.forEach((p, i) => { const cx = x + 0.4 + (i % 4) * 0.62, cy = d.y - 0.12 + Math.floor(i / 4) * 0.62; drawPallet(cx * T, (cy + 0.2) * T, T * 0.5, false); });
+    });
+  }
+  for (const L of S.lanes) if (L.truck) {
+    const tr = L.truck;
+    truck(63.1, L.y, 1, tr, tr.loaded, tr.cap, x => {
+      const f = tr.loaded / tr.cap;
+      ctx.fillStyle = hexA(KRAFT, 0.85); ctx.fillRect((x + 0.15) * T, (L.y - 0.3) * T, 2.5 * f * T, 1.2 * T);
+      label(`${tr.loaded}/${tr.cap}`, (x + 1.4) * T, (L.y + 0.3) * T, Math.max(8, T * 0.55), C.ink, 'center', 700);
+    });
+  }
+  // yard queue marker
+  if (S.yard.length) label(`${S.yard.length} in yard`, 1.5 * T, 24 * T, Math.max(8, T * 0.55), C.bad, 'center', 700);
+
+  // tour highlight
+  if (UI.tourZone) {
+    const z = ZONES[UI.tourZone];
+    const a = 0.55 + 0.35 * Math.sin(performance.now() / 300);
+    ctx.strokeStyle = hexA('#F2B705', a); ctx.lineWidth = 3; ctx.setLineDash([8, 5]);
+    ctx.strokeRect(z.x * T + 2, z.y * T + 2, z.w * T - 4, z.h * T - 4); ctx.setLineDash([]);
+  }
+
+  // selected path
+  const sel = UI.selected != null ? S.agents[UI.selected] : null;
+  if (sel && sel.path.length) {
+    ctx.strokeStyle = hexA(ROLES[sel.role].color, 0.7); ctx.lineWidth = 2; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo((sel.x + 0.5) * T, (sel.y + 0.5) * T);
+    for (const n of sel.path) ctx.lineTo((n % W + 0.5) * T, (((n / W) | 0) + 0.5) * T);
+    ctx.stroke(); ctx.setLineDash([]);
+    const g = sel.path[sel.path.length - 1];
+    ctx.fillStyle = ROLES[sel.role].color; ctx.beginPath(); ctx.arc((g % W + 0.5) * T, (((g / W) | 0) + 0.5) * T, T * 0.15, 0, 7); ctx.fill();
+  }
+
+  // agents
+  for (const a of S.agents) drawAgent(a, a === sel);
+  // scan result rings
+  for (const f of S.fx) {
+    const k = (t - f.t0) / 0.8;
+    ctx.strokeStyle = hexA(f.ok ? '#16A34A' : '#DC2626', 1 - k); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc((f.x + 0.5) * T, (f.y + 0.5) * T, T * (0.25 + k * 0.5), 0, 7); ctx.stroke();
+    if (f.fixed) { ctx.strokeStyle = hexA('#DC2626', 1 - k); ctx.beginPath(); ctx.moveTo(54.17 * T, (f.y - 0.05) * T); ctx.lineTo(54.17 * T, (f.y + 0.9) * T); ctx.stroke(); }
+  }
+  // bubbles last
+  for (const a of S.agents) {
+    const show = a === sel || (a.radio) || UI.bubbles === 'all' || (UI.bubbles === 'scans' && a.state === 'scanning');
+    if (show && UI.bubbles !== 'off' || a === sel || a.radio && UI.bubbles !== 'off') drawBubble(a, a.radio ? a.radio.text : a.bubble);
+  }
+}
+
+function drawAgent(a, selected) {
+  const col = ROLES[a.role].color;
+  const cx = (a.x + 0.5) * T, cy = (a.y + 0.5) * T;
+  const fx = a.face.x, fy = a.face.y;
+  if (selected) { ctx.strokeStyle = C.ink; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, T * 0.62, 0, 7); ctx.stroke(); }
+  // scan beam
+  if (a.state === 'scanning' && a.cur && a.cur.k === 'scan') {
+    const s = a.cur;
+    const dx = cx + fx * T * 0.34 + fy * T * 0.2, dy = cy + fy * T * 0.34 - fx * T * 0.2;
+    const tx = (s.tx + 0.5) * T, ty = (s.ty + 0.5) * T;
+    const pulse = 0.55 + 0.45 * Math.sin(performance.now() / 45);
+    ctx.fillStyle = hexA('#EF4444', 0.13);
+    const ang = Math.atan2(ty - dy, tx - dx), len = Math.hypot(tx - dx, ty - dy), spread = T * 0.28;
+    ctx.beginPath(); ctx.moveTo(dx, dy);
+    ctx.lineTo(tx + Math.cos(ang + Math.PI / 2) * spread, ty + Math.sin(ang + Math.PI / 2) * spread);
+    ctx.lineTo(tx - Math.cos(ang + Math.PI / 2) * spread, ty - Math.sin(ang + Math.PI / 2) * spread); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = hexA('#EF4444', pulse); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(dx, dy); ctx.lineTo(tx, ty); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(tx - spread, ty); ctx.lineTo(tx + spread, ty); ctx.stroke();
+    if (len < 1) { /* self-target */ }
+  }
+  // carried goods drawn under the body
+  if (a.carry) {
+    const ox = cx + fx * T * 0.62, oy = cy + fy * T * 0.62;
+    if (a.carry.t === 'pallet') drawPallet(ox, oy, T * 0.62, false);
+    else if (a.carry.t === 'cart') {
+      const bx = cx - fx * T * 0.66, by = cy - fy * T * 0.66;
+      ctx.fillStyle = C.panel; ctx.strokeStyle = C.muted; ctx.lineWidth = 1;
+      rr(bx - T * 0.32, by - T * 0.32, T * 0.64, T * 0.64, 2); ctx.fill(); ctx.stroke();
+      for (let i = 0; i < a.carry.totes; i++) { ctx.fillStyle = a.carry.items ? '#2563EB' : hexA('#2563EB', 0.4); ctx.fillRect(bx - T * 0.27 + i * T * 0.19, by - T * 0.2, T * 0.15, T * 0.4); }
+    } else if (a.carry.t === 'carton' || a.carry.t === 'tote') {
+      ctx.fillStyle = a.carry.t === 'carton' ? KRAFT : '#A16207'; ctx.fillRect(ox - T * 0.2, oy - T * 0.2, T * 0.4, T * 0.4);
+    }
+  }
+  // body
+  if (ROLES[a.role].vehicle) {
+    const horiz = fx !== 0;
+    const w = horiz ? T * 0.86 : T * 0.62, h = horiz ? T * 0.62 : T * 0.86;
+    ctx.fillStyle = col; ctx.strokeStyle = C.dark ? '#0B0F12' : '#6B5200'; ctx.lineWidth = 1.2;
+    rr(cx - w / 2, cy - h / 2, w, h, 3); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = C.dark ? '#0B0F12' : '#3D3000';
+    rr(cx - T * 0.14 - fx * T * 0.12, cy - T * 0.14 - fy * T * 0.12, T * 0.28, T * 0.28, 2); ctx.fill();
+    ctx.strokeStyle = C.dark ? '#AAB5BF' : '#4B5563'; ctx.lineWidth = 2;
+    const fx0 = cx + fx * T * 0.43, fy0 = cy + fy * T * 0.43;
+    ctx.beginPath();
+    ctx.moveTo(fx0 + fy * T * 0.16, fy0 + fx * T * 0.16); ctx.lineTo(fx0 + fx * T * 0.3 + fy * T * 0.16, fy0 + fy * T * 0.3 + fx * T * 0.16);
+    ctx.moveTo(fx0 - fy * T * 0.16, fy0 - fx * T * 0.16); ctx.lineTo(fx0 + fx * T * 0.3 - fy * T * 0.16, fy0 + fy * T * 0.3 - fx * T * 0.16);
+    ctx.stroke();
+  } else {
+    const r = T * 0.34;
+    if (a.role === 'supervisor') { ctx.strokeStyle = '#F2B705'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, r + 2, 0, 7); ctx.stroke(); }
+    ctx.fillStyle = col; ctx.strokeStyle = C.dark ? '#0B0F12' : '#FFFFFF'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill(); ctx.stroke();
+    // head direction notch
+    ctx.fillStyle = C.dark ? '#0B0F12' : '#FFFFFF';
+    ctx.beginPath(); ctx.arc(cx + fx * r * 0.45, cy + fy * r * 0.45, r * 0.28, 0, 7); ctx.fill();
+  }
+  // handheld scanner
+  const hx = cx + fx * T * 0.34 + fy * T * 0.2, hy = cy + fy * T * 0.34 - fx * T * 0.2;
+  ctx.fillStyle = a.state === 'scanning' ? '#EF4444' : (C.dark ? '#E2E8ED' : '#111827');
+  ctx.fillRect(hx - T * 0.08, hy - T * 0.08, T * 0.16, T * 0.16);
+  // progress ring
+  if (a.state === 'working') {
+    ctx.strokeStyle = C.good; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(cx, cy, T * 0.5, -Math.PI / 2, -Math.PI / 2 + (a.progress || 0) * Math.PI * 2); ctx.stroke();
+  }
+  if (a.state === 'waiting' && a.waitT > 0.4) { ctx.fillStyle = C.bad; ctx.beginPath(); ctx.arc(cx + T * 0.34, cy - T * 0.34, T * 0.11, 0, 7); ctx.fill(); }
+}
+
+function drawBubble(a, text) {
+  if (!text) return;
+  const fs = Math.max(10, Math.min(12.5, T * 0.72));
+  ctx.font = `600 ${fs}px Barlow, "Segoe UI", sans-serif`;
+  const tw = ctx.measureText(text).width;
+  const pw = tw + 12, ph = fs + 8;
+  let x = (a.x + 0.5) * T - pw / 2, y = (a.y + 0.5) * T - T * 0.6 - ph - 4;
+  x = Math.max(2, Math.min(W * T - pw - 2, x)); if (y < 2) y = (a.y + 0.5) * T + T * 0.7;
+  const col = a.radio ? '#E11D48' : ROLES[a.role].color;
+  ctx.fillStyle = C.panel; ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+  rr(x, y, pw, ph, 4); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = C.ink; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, x + 6, y + ph / 2 + 0.5);
+}
+
+/* ---------------------------------------------------------------- UI */
+const UI = { playing: true, speed: 1, mode: 'continuous', bubbles: 'scans', selected: null, tourZone: 'receiving', tour: 0, filter: 'all' };
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const clock = t => { const m = Math.floor(t) + 360; return `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; };
+const dur = m => m >= 60 ? `${Math.floor(m / 60)}h ${String(Math.round(m % 60)).padStart(2, '0')}m` : `${Math.round(m)} min`;
+
+function segment(id, key, cb) {
+  const el = $(id);
+  el.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    for (const x of el.querySelectorAll('button')) x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
+    const v = isNaN(+b.dataset.v) ? b.dataset.v : +b.dataset.v;
+    UI[key] = v; cb && cb(v);
+  });
+}
+segment('speedSeg', 'speed');
+segment('bubbleSeg', 'bubbles');
+segment('modeSeg', 'mode', v => {
+  S.mode = v;
+  if (v === 'wave') { S.nextWave = S.t + 40; emit('RELEASE_MODE', 'order', null, 'Order release switched to waves · next wave in 40 min'); }
+  else { const held = S.pending.splice(0); for (const o of held) releaseOrder(o, 'quiet'); emit('RELEASE_MODE', 'order', null, `Order release switched to continuous${held.length ? ` · ${held.length} held orders released` : ''}`); }
+});
+$('btnPlay').onclick = () => { UI.playing = !UI.playing; $('btnPlay').textContent = UI.playing ? 'Pause' : 'Play'; };
+$('btnTruck').onclick = () => spawnInbound();
+$('btnSpike').onclick = () => { for (let i = 0; i < 20; i++) newOrder(true); emit('ORDER_SPIKE', 'order', null, `20 orders dropped in at once (flash sale)${S.mode === 'wave' ? ' · held for next wave' : ' · released'}`); };
+$('btnReset').onclick = () => { reset((Math.random() * 1e9) | 0); applyTour(UI.tour); };
+$('btnFollow').onclick = () => { UI.selected = null; syncRoster(); };
+$('logFilter').onchange = e => { UI.filter = e.target.value; rebuildLog(); };
+document.addEventListener('keydown', e => { if (e.code === 'Space' && !/INPUT|SELECT|BUTTON|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); $('btnPlay').click(); } });
+
+// legend
+$('legend').innerHTML = Object.values(ROLES).map(r => `<span><i class="dot" style="background:${r.color}"></i>${r.label} ${r.count}</span>`).join('') +
+  `<span><i class="sq" style="background:${'#6F95B8'}"></i>Stocked slot</span><span><i class="sq" style="background:#F2B705"></i>A-class / putaway target</span>`;
+
+// canvas picking
+function agentAt(ev) {
+  const r = cv.getBoundingClientRect();
+  const x = (ev.clientX - r.left) / T - 0.5, y = (ev.clientY - r.top) / T - 0.5;
+  let best = null, bd = 0.9;
+  for (const a of S.agents) { const d = Math.hypot(a.x - x, a.y - y); if (d < bd) { bd = d; best = a; } }
+  return best;
+}
+cv.addEventListener('click', ev => { const a = agentAt(ev); UI.selected = a ? a.id : null; syncRoster(); renderInspector(); });
+cv.addEventListener('mousemove', ev => { cv.style.cursor = agentAt(ev) ? 'pointer' : 'default'; });
+
+function buildRoster() {
+  UI.rosterHTML = S.agents.map(a => `<button type="button" data-id="${a.id}" aria-pressed="false"><i class="dot" style="background:${ROLES[a.baseRole].color}"></i>${a.code}</button>`).join('');
+}
+function syncRoster() {
+  const r = document.querySelector('.roster');
+  if (r) for (const b of r.children) b.setAttribute('aria-pressed', +b.dataset.id === UI.selected ? 'true' : 'false');
+  $('btnFollow').hidden = UI.selected == null;
+}
+$('insp').addEventListener('click', e => { const b = e.target.closest('.roster button'); if (!b) return; UI.selected = +b.dataset.id; syncRoster(); renderInspector(); });
+
+const STATE_LABEL = { moving: 'Moving', scanning: 'Scanning', working: 'Working', waiting: 'Blocked', idle: 'Idle' };
+function renderInspector() {
+  const a = UI.selected != null ? S.agents[UI.selected] : null;
+  let html = '';
+  if (!a) {
+    html = `<p class="hint">Click any worker on the floor, or pick one below, to see what they are doing and why.</p>`;
+  } else {
+    const r = ROLES[a.role];
+    const util = a.stats.busy + a.stats.idle > 0 ? Math.round(100 * a.stats.busy / (a.stats.busy + a.stats.idle)) : 0;
+    const next = [a.cur, ...a.steps].filter(s => s && s.k !== 'do').slice(0, 4).map(s => s.label || s.code);
+    const carry = !a.carry ? 'Nothing' : a.carry.t === 'pallet' ? `Pallet ${a.carry.p.lpn} (${a.carry.p.sku} × ${a.carry.p.qty})` : a.carry.t === 'cart' ? `Pick cart, ${a.carry.totes} totes, ${a.carry.items} units` : a.carry.t === 'carton' ? 'Shipping carton' : 'Returns tote';
+    html = `
+      <div class="who"><i class="av" style="background:${r.color}"></i><div><h3>${esc(a.first)} · ${esc(a.code)}</h3>
+        <p>${esc(r.label)}${a.role !== a.baseRole ? ` (borrowed from ${esc(ROLES[a.baseRole].label)})` : ''} · RF handheld · ${STATE_LABEL[a.state] || a.state}</p></div></div>
+      <div class="now"><div class="lab">Now</div><div class="txt">${esc(a.radio ? a.radio.text : a.bubble || '–')}</div></div>
+      <div class="why"><em>Why this task</em>${esc(a.why || 'Waiting for the WMS to offer work that fits this role.')}</div>
+      ${next.length ? `<div><div class="why"><em>Task steps · ${esc(a.jobLabel)}</em></div><ol class="steps">${next.map(s => `<li>${esc(s)}</li>`).join('')}</ol></div>` : ''}
+      <div class="why"><em>Carrying</em>${esc(carry)}</div>
+      <div class="stats"><div><b>${a.stats.scans}</b><span>scans</span></div><div><b>${a.stats.tasks}</b><span>tasks done</span></div><div><b>${util}%</b><span>busy time</span></div></div>
+      <div><div class="why"><em>Recent scans</em></div>${a.lastScans.length ? `<ul class="scanlist">${a.lastScans.map(s => `<li><code>${clock(s.t)}</code><span><b>${esc(s.code)}</b> ${esc(s.text)}</span></li>`).join('')}</ul>` : '<p class="hint">No scans yet.</p>'}</div>`;
+  }
+  $('insp').innerHTML = html + `<div class="roster">${UI.rosterHTML}</div>`;
+  syncRoster();
+}
+
+// event log
+function evRow(e) {
+  const st = STAGES[e.stage];
+  return `<li class="ev${e.stage === 'alert' ? ' alert' : ''}" style="--c:${st.color}"><time>${clock(e.t)}</time><div class="l1"><code>${esc(e.code)}</code>${e.rf ? '<span class="rf">RF</span>' : ''}<span class="by">${esc(e.who)}</span></div><div class="msg">${esc(e.text)}</div></li>`;
+}
+function rebuildLog() {
+  const f = FILTERS[UI.filter];
+  const rows = [];
+  for (let i = S.events.length - 1; i >= 0 && rows.length < 150; i--) if (f(S.events[i])) rows.push(evRow(S.events[i]));
+  $('evlist').innerHTML = rows.join('');
+  pendingLog.length = 0;
+}
+function flushLog() {
+  if (!pendingLog.length) return;
+  const f = FILTERS[UI.filter];
+  const rows = pendingLog.filter(f).slice(-40).reverse().map(evRow).join('');
+  pendingLog.length = 0;
+  if (!rows) return;
+  const list = $('evlist');
+  list.insertAdjacentHTML('afterbegin', rows);
+  while (list.children.length > 150) list.lastElementChild.remove();
+}
+
+// metrics
+const STATE_COLORS = { moving: '#2563EB', scanning: '#EF4444', working: '#16A34A', waiting: '#F59E0B', idle: '#94A3B8' };
+function renderMetrics() {
+  $('clock').firstChild.nodeValue = clock(S.t);
+  $('kShipped').textContent = S.m.shipped;
+  $('kShippedS').textContent = `${S.m.shipTimes.length} in the last hour`;
+  const open = S.m.created - S.m.shipped;
+  $('kOpen').textContent = open;
+  $('kOpenS').textContent = `${S.pickQueue.length} to pick · ${S.backorders.length} short · ${S.pending.length} held`;
+  const cyc = S.m.cycle; $('kCycle').textContent = cyc.length ? dur(cyc.reduce((s, x) => s + x, 0) / cyc.length) : '–';
+  $('kLines').textContent = S.m.pickTimes.length;
+  $('kLinesS').textContent = `${S.agents.filter(a => a.role === 'picker').length} pickers on the floor`;
+  $('kScans').textContent = S.m.scans.toLocaleString();
+  const tot = S.m.scans + S.m.noReads;
+  $('kScansS').textContent = `${tot ? (100 * S.m.scans / tot).toFixed(1) : '100.0'}% first-pass read rate`;
+  const q = S.stations.reduce((n, s) => n + s.queue.length, 0);
+  $('kPack').textContent = q;
+  $('kPackS').textContent = `${S.stations.filter(s => s.packer).length} of 6 benches open`;
+  const inB = S.inDoors.filter(d => d.truck).length, outB = S.lanes.filter(L => L.truck).length;
+  $('kDock').textContent = `${inB}/4 · ${outB}/4`;
+  $('kDockS').textContent = `inbound · outbound${S.yard.length ? ` · ${S.yard.length} in yard` : ''} · racks ${Math.round(rackUtil() * 100)}% full`;
+  if (S.mode === 'wave') { $('kWave').textContent = `Wave in ${Math.max(0, Math.ceil(S.nextWave - S.t))}m`; $('kWaveS').textContent = `${S.pending.length} orders held`; }
+  else { $('kWave').textContent = 'Continuous'; $('kWaveS').textContent = 'each order released on arrival'; }
+  const counts = { moving: 0, scanning: 0, working: 0, waiting: 0, idle: 0 };
+  for (const a of S.agents) counts[a.state in counts ? a.state : 'moving']++;
+  const n = S.agents.length;
+  $('stateBar').innerHTML = Object.entries(counts).map(([k, v]) => `<i style="width:${100 * v / n}%;background:${STATE_COLORS[k]}" title="${STATE_LABEL[k]} ${v}"></i>`).join('');
+  $('stateKey').innerHTML = Object.entries(counts).map(([k, v]) => `<span><i class="sq" style="background:${STATE_COLORS[k]}"></i> ${STATE_LABEL[k]} <b>${v}</b></span>`).join('');
+}
+
+// guided tour
+const TOUR = [
+  { t: 'Trailer check-in and receiving', z: 'receiving', role: 'receiver', f: 'inbound',
+    b: 'A trailer backs onto an inbound door. The WMS already holds its ASN (advance shipping notice), the list of every pallet on board. The receiver scans the ASN to open the receipt, scans each pallet\'s license plate number (LPN) as it comes off, then scans the staging spot where it is set down. When every LPN is in, the receipt closes and the door is freed.',
+    e: 'ASN_CHECKIN → RECEIVE_SCAN (per LPN) → STAGE_CONFIRM → RECEIPT_CLOSE' },
+  { t: 'Quality inspection hold', z: 'qc', role: 'qc', f: 'inbound',
+    b: 'One pallet in five is sampled. It stays on hold in staging (red dashed outline) until the inspector scans it, checks count, damage and labels, and either releases it to putaway or moves it to the quarantine cage. Putaway never touches a held pallet.',
+    e: 'QC_HOLD → QC_START → QC_PASS | QC_FAIL → QUARANTINE' },
+  { t: 'System-directed putaway', z: 'storage', role: 'forklift', f: 'storage',
+    b: 'Forklift drivers take the oldest released pallet. Scanning its LPN asks the WMS where it goes. Fast movers (A class, yellow edge) are slotted near the pack line, slow movers (C class) in the far aisles, and a slot already holding the same SKU is topped off first. The yellow outline marks a slot reserved for an incoming pallet. PUTAWAY_CONFIRM at the rack makes the stock available to pick.',
+    e: 'PUTAWAY_START (WMS returns target location) → PUTAWAY_CONFIRM · LOC_EMPTY when a slot is picked clean' },
+  { t: 'Order release: continuous or waves', z: 'orders', role: 'picker', f: 'pick',
+    b: 'Customer orders arrive through the shift. In Continuous mode each order is allocated to specific rack slots and released to pick as soon as it arrives. In Waves mode orders are held and released together every 40 minutes. Switch the Release control at the top and watch the pack queue go from steady to bursty. If stock is short the order is backordered until inbound stock lands.',
+    e: 'ORDER_CREATE → ORDER_RELEASE / WAVE_RELEASE (allocation) · ORDER_BACKORDER on shortage' },
+  { t: 'Batch picking with location checks', z: 'storage', role: 'picker', f: 'pick',
+    b: 'A picker takes up to three orders on one cart, one tote per order, and walks an S-shaped route: up one aisle, down the next. At each stop they scan the location label first, then the item. If they scan the wrong slot the WMS rejects it and they rescan. That check is what stops mis-picks. Select a picker to see their planned route as a dashed line.',
+    e: 'TOTE_ASSIGN → LOC_SCAN → PICK_CONFIRM (per line) → TOTE_DROP · SCAN_MISMATCH on wrong slot' },
+  { t: 'Pack and verify', z: 'pack', role: 'packer', f: 'pack',
+    b: 'Pickers drop totes at the open bench with the shortest queue (blue squares above each bench). The packer scans the tote, scans every item again to verify the order, boxes it, and prints and scans a carrier label. The carton then goes onto the takeaway conveyor.',
+    e: 'PACK_START → PACK_VERIFY (per line) → LABEL_APPLY' },
+  { t: 'Sortation and trailer loading', z: 'outbound', role: 'loader', f: 'ship',
+    b: 'At each lane entrance a fixed scanner reads the carton label with nobody holding a device and sends the carton into its carrier lane. Loaders scan each carton into the trailer. If a lane is full, cartons back up on the conveyor (red outline). That is outbound backpressure.',
+    e: 'SORT_SCAN (fixed, no RF) → LOAD_SCAN (RF) → SHIP_CONFIRM' },
+  { t: 'Ship confirm and cycle time', z: 'outbound', role: 'loader', f: 'ship',
+    b: 'A trailer leaves when it is full, or after 75 minutes with nothing left in its lane. SHIP_CONFIRM closes every order on board. The time from release to this moment is the order cycle time in the metrics strip, which is the number operations teams are usually judged on.',
+    e: 'SHIP_CONFIRM (seal number, carton count) → order status SHIPPED' },
+  { t: 'Cycle counting', z: 'storage', role: 'inventory', f: 'inv',
+    b: 'Inventory control walks to slots that are due for a count and have no open picks against them. They scan the location and count without seeing the system quantity (a blind count). If the count differs from the system, an adjustment posts and the supervisor is told.',
+    e: 'CC_LOC_SCAN → CYCLE_COUNT → INV_ADJUST on variance' },
+  { t: 'Customer returns', z: 'returns', role: 'returns', f: 'returns',
+    b: 'Returned parcels arrive at the RMA desk. The clerk scans the RMA label, inspects and grades the item, then either puts it straight back into a rack slot or sends it to the return-to-vendor cage.',
+    e: 'RMA_ARRIVE → RMA_RECEIVE → RETURN_GRADE → RETURN_PUTAWAY | DISPOSITION' },
+  { t: 'Supervisor and exceptions', z: 'all', role: 'supervisor', f: 'alert',
+    b: 'The supervisor (yellow ring) walks the floor and checks live status every 2 minutes. Three or more workers in one aisle marks it congested and new pick routes avoid it. A pack backlog opens a closed bench by moving an idle picker. Pick or loading backlogs borrow idle receivers. Full staging or trailers queuing in the yard raise alerts. Borrowed workers go back to their own role once they sit idle. Try + 20 orders to trigger this.',
+    e: 'CONGESTION · LABOR_REASSIGN · PACK_BACKLOG · DOCK_BACKPRESSURE · YARD_QUEUE · SHORTAGE' },
+];
+$('pips').innerHTML = TOUR.map((s, i) => `<button type="button" data-i="${i}" aria-label="Step ${i + 1}: ${esc(s.t)}"></button>`).join('');
+$('pips').onclick = e => { const b = e.target.closest('button'); if (b) applyTour(+b.dataset.i); };
+$('tourPrev').onclick = () => applyTour((UI.tour + TOUR.length - 1) % TOUR.length);
+$('tourNext').onclick = () => applyTour((UI.tour + 1) % TOUR.length);
+function applyTour(i) {
+  UI.tour = i; const s = TOUR[i];
+  $('tourN').textContent = `${i + 1} / ${TOUR.length}`;
+  $('tourTitle').textContent = s.t; $('tourBody').textContent = s.b; $('tourEng').textContent = 'Events: ' + s.e;
+  for (const b of $('pips').children) b.setAttribute('aria-current', +b.dataset.i === i ? 'true' : 'false');
+  UI.tourZone = s.z;
+  const cands = S.agents.filter(a => a.role === s.role);
+  const busy = cands.find(a => a.cur) || cands[0];
+  UI.selected = busy ? busy.id : null;
+  UI.filter = s.f; $('logFilter').value = s.f; rebuildLog();
+  renderInspector();
+}
+
+/* ---------------------------------------------------------------- loop */
+let last = performance.now(), uiAcc = 0;
+function frame(now) {
+  const real = Math.min(0.1, (now - last) / 1000); last = now;
+  if (UI.playing) {
+    let simDt = real * UI.speed;
+    while (simDt > 0) { const d = Math.min(0.05, simDt); step(d); simDt -= d; }
+  }
+  draw();
+  flushLog();
+  uiAcc += real;
+  if (uiAcc > 0.25) { uiAcc = 0; renderMetrics(); renderInspector(); }
+  requestAnimationFrame(frame);
+}
+
+readTheme();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readTheme);
+new MutationObserver(readTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+new ResizeObserver(resize).observe(wrap);
+resize();
+reset(20260924);
+applyTour(0);
+if (document.fonts) document.fonts.ready.then(() => {});
+requestAnimationFrame(frame);
+})();
+</script>
