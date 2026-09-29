@@ -1,0 +1,1362 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dual-Master Data Flow</title>
+<meta name="description" content="Data flow visualizer: how inventory data moves between the warehouse floor, the WMS, the integration link and the ERP, under balance sync versus decoupled custody with a transactional outbox.">
+<style>
+:root{
+  color-scheme: light;
+  --bg:#f3f5fa; --dot:#d5dbe7; --card:#ffffff; --ink:#18223a; --ink2:#46526b; --muted:#7b869c; --line:#dde2ec;
+  --wms:#2f5bd3; --wms-p:#e4ebff; --erp:#e07a1f; --erp-p:#fdeedf; --ok:#0f9d7a; --ok-p:#dcf4ec;
+  --bad:#d6334a; --bad-p:#fde3e7; --warn:#c98a06; --warn-p:#fdf2d4; --store:#6b4fd8; --store-p:#eeeaff;
+  --sans:"Segoe UI",system-ui,-apple-system,Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:"Cascadia Mono","SFMono-Regular",ui-monospace,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.4}
+body{background-image:radial-gradient(var(--dot) 1.1px,transparent 1.2px);background-size:22px 22px}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--wms);outline-offset:2px}
+
+.app{height:100vh;display:flex;flex-direction:column;gap:10px;padding:12px 16px 10px}
+
+/* header */
+.hdr{display:flex;flex-wrap:wrap;gap:10px 24px;align-items:center;justify-content:space-between}
+.brand{display:flex;flex-direction:column;gap:2px;min-width:0}
+.kicker{display:inline-flex;align-items:center;gap:8px;font-size:11.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--wms)}
+.kicker i{width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,var(--wms) 50%,var(--erp) 50%)}
+.brand h1{margin:0;font-size:25px;font-weight:700;letter-spacing:-.01em;line-height:1.15}
+.brand h1 span{font-weight:500;color:var(--muted)}
+.brand p{margin:0;color:var(--ink2);font-size:13.5px;max-width:110ch}
+.brand p .pp{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#fff;border-radius:6px;padding:1px 7px;margin-right:7px;vertical-align:1px}
+.brand p .pp.a{background:var(--bad)} .brand p .pp.b{background:var(--ok)}
+.ctrls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.seg{display:inline-flex;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px;box-shadow:0 1px 2px rgba(24,34,58,.05)}
+.seg .lbl{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:0 8px 0 6px}
+.seg button{border:0;background:none;border-radius:7px;padding:6px 11px;font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap}
+.seg button:hover{background:#eef1f7}
+.seg button[aria-pressed="true"]{background:var(--ink);color:#fff}
+.seg.pat button[data-pat="1"][aria-pressed="true"]{background:var(--bad)}
+.seg.pat button[data-pat="2"][aria-pressed="true"]{background:var(--ok)}
+.play{border:0;border-radius:10px;background:var(--wms);color:#fff;font-weight:700;padding:9px 16px;cursor:pointer;min-width:92px;box-shadow:0 1px 2px rgba(24,34,58,.15)}
+.play.paused{background:var(--erp)}
+
+/* story bar */
+.story{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;align-items:center;box-shadow:0 1px 3px rgba(24,34,58,.05)}
+.scen{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.scen .lbl{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-right:4px}
+.scen button{border:1px solid var(--line);background:#f7f8fb;border-radius:999px;padding:5px 11px 5px 7px;font-size:12.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:7px;color:var(--ink2)}
+.scen button b{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#e6e9f1;font-size:11px;color:var(--ink2)}
+.scen button:hover{border-color:var(--muted)}
+.scen button.done b{background:var(--ok);color:#fff}
+.scen button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.scen button.on b{background:#fff;color:var(--ink)}
+.capwrap{position:relative;min-width:0}
+#caption{margin:0;font-size:17px;line-height:1.4;font-weight:500;height:2.8em;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;transition:opacity .2s}
+#capMore{position:absolute;right:0;bottom:-2px;border:0;background:linear-gradient(90deg,rgba(255,255,255,0),#fff 30%);padding:2px 2px 2px 34px;font-size:12.5px;font-weight:700;color:var(--wms);cursor:pointer;display:none}
+#capMore.show{display:block}
+#capFull{display:none;position:absolute;left:-8px;right:-8px;top:-8px;z-index:60;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 30px rgba(24,34,58,.2);padding:10px 12px;font-size:17px;line-height:1.45;font-weight:500}
+#capFull.show{display:block}
+#capFull b{font-weight:700} #capFull .bad{color:var(--bad)} #capFull .ok{color:var(--ok)}
+#capFull .x{float:right;border:0;background:#eef1f7;border-radius:6px;font-size:12px;font-weight:700;padding:2px 8px;margin:0 0 4px 10px;cursor:pointer}
+#caption b{font-weight:700}
+#caption .bad{color:var(--bad)} #caption .ok{color:var(--ok)}
+
+/* main */
+.main{flex:1;min-height:0;display:grid;grid-template-columns:300px minmax(0,1fr);gap:12px}
+.side{display:flex;flex-direction:column;gap:10px;min-height:0;overflow:hidden}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;box-shadow:0 1px 3px rgba(24,34,58,.05)}
+.chd{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:6px}
+.chd h3{margin:0;font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.chd .id{font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--wms);background:var(--wms-p);border-radius:6px;padding:1px 7px}
+.chd .id.erp{color:var(--erp);background:var(--erp-p)}
+#liveTitle{font-size:15.5px;font-weight:650;margin:0 0 8px}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px;position:relative}
+.steps li{display:grid;grid-template-columns:18px 1fr;gap:8px;font-size:12.5px;padding:3px 0}
+.steps li .dotc{width:12px;height:12px;border-radius:50%;border:2px solid #c9d0de;margin-top:3px;background:#fff}
+.steps li .nm{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.steps li .tx{display:block;color:var(--ink);line-height:1.3}
+.steps li.done .dotc{background:var(--ok);border-color:var(--ok)}
+.steps li.cur .dotc{border-color:var(--wms);background:var(--wms-p);box-shadow:0 0 0 4px rgba(47,91,211,.15)}
+.steps li.bad .dotc{background:var(--bad);border-color:var(--bad)}
+.steps li.bad .tx{color:var(--bad);font-weight:600}
+.steps li.wait .dotc{background:var(--warn-p);border-color:var(--warn)}
+.steps li.wait .tx{color:var(--warn);font-weight:600}
+.steps li.pend .tx{display:none}
+.ledger{display:flex;flex-direction:column}
+.lrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:6px 0;border-top:1px solid var(--line);align-items:center}
+.lrow .meta{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.lrow .ttl{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .bar{grid-column:1 / -1;display:grid;grid-template-columns:repeat(6,1fr);gap:3px}
+.lrow .bar i{height:5px;border-radius:3px;background:#e3e7ef;display:block}
+.lrow .bar i.d{background:var(--ok)} .lrow .bar i.c{background:var(--wms)} .lrow .bar i.b{background:var(--bad)} .lrow .bar i.w{background:var(--warn)}
+.lrow .dst{font-size:10.5px;font-weight:700;color:var(--muted);text-align:right}
+.lrow .ttl{grid-column:1 / -1}
+.lrow.new{animation:rowin .6s ease}
+@keyframes rowin{from{background:var(--wms-p)}to{background:transparent}}
+
+.stagecol{display:flex;flex-direction:column;gap:8px;min-height:0;min-width:0}
+.stepper{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
+.stepper li{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:7px 10px 8px;display:grid;grid-template-columns:24px 1fr;gap:1px 8px;align-items:start;position:relative;cursor:pointer;transition:background .25s,border-color .25s,box-shadow .2s}
+.stepper li:hover{border-color:#b9c3d6}
+.stepper li.open{box-shadow:0 0 0 2px var(--wms)}
+.stepper .tech{font-style:normal;font-family:var(--mono);font-size:10px;font-weight:600;color:var(--muted);background:#eef1f7;border-radius:4px;padding:1px 5px;margin-left:4px;vertical-align:1px}
+.stepper .pop{display:none;position:absolute;top:calc(100% + 6px);left:0;width:max(100%,330px);background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 28px rgba(24,34,58,.18);padding:11px 13px;z-index:40;font-size:13px;line-height:1.45;color:var(--ink);cursor:default}
+.stepper li:nth-child(n+4) .pop{left:auto;right:0}
+.stepper li.open .pop{display:block}
+.stepper .pop b{display:block;margin-bottom:4px;font-size:13.5px}
+.stepper .pop .now{margin-top:8px;padding-top:7px;border-top:1px solid var(--line);color:var(--ink2);font-size:12.5px}
+.stepper .pop .now span{display:block;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--wms);margin-bottom:2px}
+.stepper li .n{grid-row:1 / span 2;margin-top:2px;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:11.5px;font-weight:700;background:#eef1f7;color:var(--ink2)}
+.stepper li .t{font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stepper li .d{font-size:11.5px;line-height:1.3;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.6em}
+.stepper li.done .n{background:var(--ok);color:#fff}
+.stepper li.cur{background:var(--wms-p);border-color:var(--wms)}
+.stepper li.cur .n{background:var(--wms);color:#fff;animation:pulse 1.2s ease-in-out infinite}
+.stepper li.cur .d{color:var(--ink2)}
+.stepper li.bad{background:var(--bad-p);border-color:var(--bad)} .stepper li.bad .n{background:var(--bad);color:#fff}
+.stepper li.wait{background:var(--warn-p);border-color:var(--warn)} .stepper li.wait .n{background:var(--warn);color:#fff}
+.stepper li::after{content:"";position:absolute;left:12px;bottom:4px;height:3px;width:0;background:var(--wms);border-radius:2px}
+.stepper li.cur::after{animation:prog 1.4s linear infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(47,91,211,.45)}50%{box-shadow:0 0 0 6px rgba(47,91,211,0)}}
+@keyframes prog{from{width:0}to{width:calc(100% - 24px)}}
+.scene{flex:1;min-height:0;position:relative;background:rgba(255,255,255,.55);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+canvas{position:absolute;inset:0;display:block;width:100%;height:100%}
+.inv{position:absolute;left:10px;bottom:10px;z-index:2;background:rgba(255,255,255,.95);border:1px solid var(--line);border-radius:10px;padding:7px 10px 6px;box-shadow:0 2px 8px rgba(24,34,58,.07);font-size:11.5px;width:236px}
+.inv h4{margin:0;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2)}
+.inv .sub{font-size:10px;color:var(--muted);margin:1px 0 3px}
+.inv table{border-collapse:separate;border-spacing:0 2px;width:100%}
+.inv th,.inv td{padding:1px 6px;text-align:right;font-variant-numeric:tabular-nums}
+.inv th:first-child{text-align:left;padding-left:0;font-weight:650}
+.inv thead th{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase}
+.inv td{font-weight:650;border-radius:6px}
+.inv td.bad{background:var(--bad-p);color:var(--bad)}
+.inv td.flight{background:var(--warn-p);color:var(--warn)}
+.inv .note{margin-top:3px;font-size:10px;color:var(--muted)}
+.inv .note b{color:var(--ink2)}
+
+.foot{display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:11px;height:11px;border-radius:3px;display:inline-block}
+
+@media (max-width:1100px){
+  .inv{display:none}
+  .app{height:auto}
+  .main{grid-template-columns:minmax(0,1fr)}
+  .side{order:2;overflow:visible}
+  .stepper{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .scene{flex:none}
+  .story{grid-template-columns:1fr}
+}
+@media (max-width:640px){
+  .app{padding:10px}
+  .brand h1{font-size:20px}
+  #caption,#capFull{font-size:15px}
+  .stepper{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (min-width:1101px) and (max-height:860px){
+  .app{gap:8px;padding-top:8px}
+  #caption,#capFull{font-size:15.5px}
+}
+@media (prefers-reduced-motion:reduce){ .stepper li.cur .n,.stepper li.cur::after,.lrow.new{animation:none} }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="hdr">
+    <div class="brand">
+      <span class="kicker"><i></i>Data flow visualizer</span>
+      <h1>The Dual-Master Problem <span>· Physical Warehouse ⇄ WMS System ⇄ ERP</span></h1>
+      <p id="patDesc"></p>
+    </div>
+    <div class="ctrls">
+      <div class="seg pat" role="group" aria-label="Architecture pattern">
+        <span class="lbl">Pattern</span>
+        <button data-pat="1" aria-pressed="true" title="Balance sync: the WMS and ERP each keep their own stock total and send each other the whole number after every change. Every scan waits for the ERP, and the last number written wins.">A · Balance sync</button>
+        <button data-pat="2" aria-pressed="false" title="Custody + outbox: the WMS owns the physical stock and the ERP owns the books. Each scan is saved in the WMS at once; only the change (+6, −4) is queued and sent to the ERP, which applies it exactly once.">B · Custody + outbox</button>
+      </div>
+      <div class="seg" role="group" aria-label="Speed">
+        <span class="lbl">Speed</span>
+        <button data-speed="0.2" aria-pressed="false">0.2×</button>
+        <button data-speed="0.5" aria-pressed="true">0.5×</button>
+        <button data-speed="1" aria-pressed="false">1×</button>
+      </div>
+      <button class="play" id="playBtn">❚❚ Pause</button>
+    </div>
+  </header>
+
+  <section class="story">
+    <div class="scen" id="scen"><span class="lbl">Scenario</span></div>
+    <div class="capwrap">
+      <p id="caption" aria-live="polite" title="Click to read the full text"></p>
+      <button id="capMore" type="button">Read more ▾</button>
+      <div id="capFull" role="dialog" aria-label="Full description"><button class="x" type="button" aria-label="Close">Close ✕</button><div id="capFullText"></div></div>
+    </div>
+  </section>
+
+  <div class="main">
+    <aside class="side">
+      <div class="card">
+        <div class="chd"><h3>Live transaction</h3><span class="id" id="liveId">—</span></div>
+        <p id="liveTitle">Waiting for the floor…</p>
+        <ul class="steps" id="liveSteps"></ul>
+      </div>
+      <div class="card" style="flex:1;min-height:0;overflow:hidden">
+        <div class="chd"><h3>Transaction ledger</h3><h3>newest first</h3></div>
+        <div class="ledger" id="ledger"></div>
+      </div>
+    </aside>
+
+    <section class="stagecol">
+      <ol class="stepper" id="stepper" aria-label="Inventory pipeline"></ol>
+      <div class="scene" id="scene">
+        <div class="inv" id="inv" aria-live="off"></div>
+        <canvas id="cv" role="img" aria-label="Warehouse floor with trucks, receiving, racks and staging on the left; a conveyor carries each inventory transaction through six gates to the ERP on the right; a data-stores platform shows shelf, WMS and ERP quantities for bin A-04 as towers, connected to the conveyor by data lines."></canvas>
+      </div>
+    </section>
+  </div>
+
+  <footer class="foot">
+    <div class="legend">
+      <span><i style="background:var(--wms)"></i>WMS transaction</span>
+      <span><i style="background:var(--erp)"></i>ERP message</span>
+      <span><i style="background:var(--ok)"></i>ACK / reconciled</span>
+      <span><i style="background:#c9954c"></i>Goods</span>
+      <span><i style="background:var(--store)"></i>Database write / read</span>
+    </div>
+    <span>Synthetic data (SKU-8820). It illustrates a general enterprise integration pattern.</span>
+  </footer>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* =====================================================================
+   CONFIG
+   ===================================================================== */
+const Q = new URLSearchParams(location.search);
+let speed = Q.get('speed') ? Math.max(0.1, Math.min(8, +Q.get('speed'))) : 0.5;
+const G = [4, 17.5, 31, 44.5, 58, 71.5];      // gate x positions
+const LINK_X = 37.75;                          // integration link between gate 03 and 04
+const BELT_Z = 6, V = 15, DWELL = 700, WALK_V = 10;
+const START = {phys:{rcv:0, a04:12, b12:0, stg:0}};
+const LOCNAME = {rcv:'RCV-DOCK', a04:'A-04', b12:'B-12', stg:'STAGE'};
+const LOC = {truckIn:{x:-59, y:12}, truckOut:{x:-26, y:-20.5}, rcv:{x:-51, y:12}, stg:{x:-26.5, y:-8}, a04:{x:-54, y:-14}, b12:{x:-40, y:-14}};
+
+const SANS = '"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif';
+const MONO = '"Cascadia Mono","SFMono-Regular",ui-monospace,Consolas,monospace';
+const INK = '#26324a';
+const COL = {wms:'#2f5bd3', erp:'#e07a1f', ok:'#0f9d7a', bad:'#d6334a', warn:'#c98a06', store:'#6b4fd8', goods:'#c9954c', muted:'#7b869c'};
+const ST = {
+  plat:   ['#ffffff', '#e7ebf3', '#d4dae6'],
+  wmsP:   ['#eef3ff', '#d6e1fb', '#c2d1f4'],
+  erpP:   ['#fff4ea', '#fbe0c8', '#f2cdac'],
+  storeP: ['#f3f0ff', '#e0d9fb', '#cfc5f4'],
+  belt:   ['#fbfcfe', '#e3e7ef', '#cfd5e1'],
+  blue:   ['#5b83ec', '#2f5bd3', '#2347a8'],
+  orange: ['#f5a55a', '#e07a1f', '#b8611a'],
+  teal:   ['#3cc9a2', '#0f9d7a', '#0b7a5f'],
+  red:    ['#f06a7b', '#d6334a', '#ab2639'],
+  amber:  ['#f6c653', '#d99a0b', '#ad7a08'],
+  goods:  ['#e4ba7c', '#c9954c', '#a6773a'],
+  shelfT: ['#e0f6ef', '#c6ebdf', '#ade0cf'],
+  wmsT:   ['#e6edff', '#cbd9fb', '#b3c6f4'],
+  erpT:   ['#fff0e1', '#fcdcbe', '#f4c8a0'],
+  redT:   ['#fde4e8', '#f8c9d1', '#f1b0bb'],
+  amberT: ['#fdf1d2', '#f8e2a8', '#efd184'],
+  trailer:['#ffffff', '#e9edf4', '#d7dde8'],
+  cab:    ['#6a7898', '#4d5a78', '#3b465f'],
+  dark:   ['#56617a', '#3f4960', '#30384b'],
+};
+const STAGES = {
+  1: [['Scan on the floor', 'scan', 'The worker scans the goods. The handheld now has to wait for the ERP before the worker can carry on.'],
+      ['Read WMS total', 'read', 'The WMS looks up the total it currently holds for that location, for example A-04 = 18.'],
+      ['Send new total', 'snapshot', 'It works out the new total and sends the whole number to the ERP, for example "A-04 = 14".'],
+      ['Wait for ERP', 'sync call', 'The message crosses the link. The worker is stuck until the ERP answers. If the link is down, the floor stops.'],
+      ['ERP overwrites total', 'overwrite', 'The ERP replaces its number with the WMS number. Any change the ERP (or another scan) made in the meantime is silently lost.'],
+      ['ERP replies, WMS saves', 'ACK', 'The ERP confirms. The WMS saves the same total and the handheld unlocks.']],
+  2: [['Scan on the floor', 'scan', 'The worker scans the goods and carries on immediately. Nothing on the floor waits for the ERP.'],
+      ['Save in WMS', 'commit', 'The WMS updates its own database right away. The shelf and the WMS agree the moment the scan happens.'],
+      ['Queue for ERP', 'outbox', 'The WMS writes down the change, not the total (for example "A-04 −4"), in a to-send list, each change with its own ID.'],
+      ['Send to ERP', 'deliver', 'Changes are sent to the ERP in the order they happened. If the link is down they stay in the list and are retried.'],
+      ['ERP updates books', 'post', 'The ERP applies the change to its own number and replies with an ACK. If the same change arrives twice, its ID gives it away and it is ignored.'],
+      ['Check both match', 'reconcile', 'The ACK removes the change from the to-send list. At any moment, WMS − ERP equals exactly what is still in the list.']],
+};
+const SCEN = ['Receive & put away', 'Concurrent change', 'ERP outage while shipping', 'Busy floor · 3 scans at once', 'Paper write-off', 'Result'];
+
+/* =====================================================================
+   STATE
+   ===================================================================== */
+let pat = 1, paused = false, token = 0, ff = false;
+let simNow = 0, timers = [];
+let S, parcels = [], rail = [], effects = [], rows = [], events = [], pulses = [], agents = [], trucks = {};
+let focusRow = null, seq = 0, idN = {};
+
+function fresh(){
+  const L = () => ({rcv:0, a04:12, b12:0, stg:0});
+  return {
+    phys:L(), wms:L(), erp:L(), link:true,
+    disp:{phys:12, wms:12, erp:12},
+    m1n:0, lastTx:null, blockedMs:0, lost:false, dupSeen:false, loseAck:false,
+    financeTag:null, incident:0, evSeq:0, flash:{},
+  };
+}
+function nextId(prefix){ idN[prefix] = (idN[prefix] || ({PK:1042, RCV:2201, PUT:2301, TRF:2401, SHP:2501, JR:2045})[prefix] || 1000) + 1; return prefix + '-' + idN[prefix]; }
+
+function after(ms, fn){ timers.push({at:simNow + ms, fn}); }
+function wait(ms){ const t = token; return new Promise((res, rej) => after(ms, () => t === token ? res() : rej('stop'))); }
+async function until(pred){ while (!pred()) await wait(100); }
+
+/* =====================================================================
+   PROJECTION (flat dimetric) & PRIMITIVES
+   ===================================================================== */
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const PA = 0.92, PB = 0.39;
+let SC = 7, OX = 0, OY = 0, FS = 11, CW = 900, CH = 560, SMALL = false;
+const P = (x, y, z) => [OX + (x - y) * PA * SC, OY + (x + y) * PB * SC - z * SC];
+let TAGS = [];
+
+// scene features (and their label boxes) that must never sit under the inventory table
+function hitsPanel(r){
+  const FSx = Math.max(9.5, Math.min(13.5, SC * 1.5));
+  const pts = [];
+  const add = (x, y, z, dx0, dy0, w, h) => { const [sx, sy] = P(x, y, z); for (const fx of [0, .5, 1]) for (const fy of [0, 1]) pts.push([sx + dx0 + w * fx, sy + dy0 + h * fy]); };
+  for (let i = 0; i <= 10; i++){ add(-62 + i * 5.6, 22, 0, 0, 0, 0, 0); add(-62, -22 + i * 4.4, 0, 0, 0, 0, 0); }
+  for (let i = 0; i <= 12; i++) add(-8 + i * 8, 3.5, 5, 0, 0, 0, 0);
+  add(-78, 16, 0, 0, 0, 0, 0); add(-78, 8, 0, 0, 0, 0, 0);
+  add(-62, 22, 0, 40 - 230, 58 - FSx - 12, 230, FSx + 12);           // warehouse title
+  for (const g of G){ add(g - 5.5, 9, .6, -2 - 175, 6, 175, FSx + 9); add(g - 5.5, 9, 0, 0, 0, 0, 0); }
+  add(106, 15, 0, 18, 12 - FSx - 12, 220, FSx + 12);                 // ERP title
+  for (let i = 0; i <= 4; i++) add(82 + i * 6, 15, 0, 0, 0, 0, 0);
+  return pts.some(([x, y]) => x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1);
+}
+function fit(){
+  const wrap = document.getElementById('scene');
+  const narrow = window.innerWidth <= 1100;
+  CW = wrap.clientWidth;
+  if (narrow){ CH = Math.round(CW * 0.72); wrap.style.height = CH + 'px'; }
+  else { wrap.style.height = ''; CH = wrap.clientHeight; }
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(CW * dpr); cv.height = Math.round(CH * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const pts = [[-78,8,0],[-78,16,0],[-78,8,11],[-30,-38,11],[-62,22,0],[-6,22,0],[-62,-22,17],[-46,-22,19],[-30,-22,19],[12,-66,20],[56,-66,20],[56,-42,0],[106,15,0],[106,-15,0],[91,-10,24],[84,16,0]];
+  let a = 1e9, b = -1e9, c = 1e9, d = -1e9;
+  for (const [x, y, z] of pts){ const sx = (x - y) * PA, sy = (x + y) * PB - z; a = Math.min(a, sx); b = Math.max(b, sx); c = Math.min(c, sy); d = Math.max(d, sy); }
+  const pad = narrow ? 6 : 10;
+  SC = Math.min((CW - pad * 2) / (b - a), (CH - pad * 2 - 30) / (d - c));
+  const inv = document.getElementById('inv');
+  const box0 = !narrow && inv && inv.offsetWidth ? {x0:0, y0:CH - inv.offsetHeight - 22, x1:inv.offsetWidth + 22, y1:CH} : null;
+  const place = ox => {
+    OX = ox;
+    OY = pad + 18 + (CH - pad * 2 - 30 - (d - c) * SC) / 2 - c * SC;
+  };
+  place((CW - (b - a) * SC) / 2 - a * SC);
+  if (box0 && hitsPanel(box0)){
+    for (let k = 0; k < 40; k++){
+      const centre = (CW - (b - a) * SC) / 2 - a * SC, right = CW - pad - b * SC;
+      let clear = false;
+      for (let ox = centre; ox <= right + .1; ox += 6){ place(ox); if (!hitsPanel(box0)){ clear = true; break; } }
+      if (clear) break;
+      SC *= 0.98;
+    }
+  }
+  FS = Math.max(9.5, Math.min(13.5, SC * 1.5));
+  SMALL = CW < 760;          // short labels only on phone-sized canvases, never on desktop
+}
+
+function poly(pts, fill, stroke, lw, dash){
+  ctx.beginPath(); pts.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath();
+  if (fill){ ctx.fillStyle = fill; ctx.fill(); }
+  if (stroke !== null){ ctx.setLineDash(dash || []); ctx.lineWidth = lw || 1; ctx.strokeStyle = stroke || INK; ctx.lineJoin = 'round'; ctx.stroke(); ctx.setLineDash([]); }
+}
+function box(x, y, z, w, d, h, st, o){
+  o = o || {};
+  const [t, l, r] = st || ST.plat, s = o.stroke === undefined ? INK : o.stroke, lw = o.lw || .9;
+  if (o.alpha !== undefined) ctx.globalAlpha = Math.max(0, o.alpha);
+  poly([P(x+w,y,z+h), P(x+w,y+d,z+h), P(x+w,y+d,z), P(x+w,y,z)], r, s, lw, o.dash);
+  poly([P(x,y+d,z+h), P(x+w,y+d,z+h), P(x+w,y+d,z), P(x,y+d,z)], l, s, lw, o.dash);
+  poly([P(x,y,z+h), P(x+w,y,z+h), P(x+w,y+d,z+h), P(x,y+d,z+h)], t, s, lw, o.dash);
+  ctx.globalAlpha = 1;
+}
+function line(a, b, col, lw, dash, alpha){
+  ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+  ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+  ctx.setLineDash(dash || []); ctx.strokeStyle = col || INK; ctx.lineWidth = lw || 1; ctx.stroke(); ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+}
+function rrect(x, y, w, h, r){ ctx.beginPath(); if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h); }
+
+const TS = {
+  plain: {bg:'#ffffff', color:INK, border:'#c9d1e0'},
+  ink:   {bg:'#26324a', color:'#fff', border:'#26324a'},
+  wms:   {bg:COL.wms, color:'#fff', border:COL.wms},
+  wmsP:  {bg:'#e6edff', color:'#2347a8', border:'#9fb5ef'},
+  erp:   {bg:COL.erp, color:'#fff', border:COL.erp},
+  erpP:  {bg:'#fff0e1', color:'#9a4f0f', border:'#f0b787'},
+  ok:    {bg:COL.ok, color:'#fff', border:COL.ok},
+  okP:   {bg:'#dcf4ec', color:'#0b6e55', border:'#8fd6c0'},
+  bad:   {bg:COL.bad, color:'#fff', border:COL.bad},
+  badP:  {bg:'#fde3e7', color:'#a62236', border:'#ef9aa8'},
+  warn:  {bg:'#fdf2d4', color:'#855b02', border:'#e6bf5c'},
+  store: {bg:COL.store, color:'#fff', border:COL.store},
+  storeP:{bg:'#efebff', color:'#4a33a8', border:'#bdb0f2'},
+  muted: {bg:'#f4f6fa', color:COL.muted, border:'#dde2ec'},
+  goods: {bg:'#fbf1e2', color:'#7a5320', border:'#e0bf8c'},
+};
+function tag(x, y, z, text, style, o){ TAGS.push({p:P(x, y, z), text, s:TS[style] || TS.plain, o:o || {}}); }
+function paintTags(){
+  for (const {p, text, s, o} of TAGS){
+    const fs = FS * (o.scale || 1);
+    ctx.font = `${o.weight || 650} ${fs}px ${o.mono ? MONO : SANS}`;
+    const w = ctx.measureText(text).width + fs * 1.1, h = fs + 9;
+    let x = p[0] + (o.dx || 0), y = p[1] + (o.dy || 0) - h;
+    if (o.align === 'center') x -= w / 2; else if (o.align === 'right') x -= w;
+    x = Math.max(3, Math.min(CW - w - 3, x));
+    ctx.globalAlpha = o.alpha === undefined ? 1 : Math.max(0, o.alpha);
+    if (o.shadow !== false){ ctx.fillStyle = 'rgba(24,34,58,.08)'; rrect(x + 1, y + 2, w, h, 6); ctx.fill(); }
+    ctx.fillStyle = s.bg; rrect(x, y, w, h, 6); ctx.fill();
+    ctx.lineWidth = 1; ctx.strokeStyle = s.border; rrect(x + .5, y + .5, w - 1, h - 1, 6); ctx.stroke();
+    ctx.fillStyle = s.color; ctx.textBaseline = 'middle'; ctx.fillText(text, x + fs * .55, y + h / 2 + .5);
+    ctx.globalAlpha = 1;
+  }
+  TAGS = [];
+}
+
+/* =====================================================================
+   DATA LINES (conveyor gates ⇄ data stores)
+   ===================================================================== */
+const TOWER = {shelf:20, wms:33, erp:46};
+const LINES = {
+  shelf: {col:COL.ok,    pts:[[-54,-22,1.2],[-54,-46,.3],[12,-46,.3],[20,-46,1.2],[20,-51,1.2]]},
+  wms:   {col:COL.wms,   pts:[[G[1],-9,.6],[G[1],-34,.3],[33,-34,.3],[33,-42,1.2],[33,-51,1.2]]},
+  erp:   {col:COL.erp,   pts:[[G[4],-9,.6],[G[4],-30,.3],[46,-30,.3],[46,-42,1.2],[46,-51,1.2]]},
+  recon: {col:COL.store, pts:[[G[5],-9,.6],[G[5],-38,.3],[52,-38,.3],[52,-42,1.2],[52,-46,1.2]]},
+};
+for (const k in LINES){
+  const L = LINES[k]; L.len = [0];
+  for (let i = 1; i < L.pts.length; i++){ const [a, b] = [L.pts[i-1], L.pts[i]]; L.len.push(L.len[i-1] + Math.hypot(b[0]-a[0], b[1]-a[1], b[2]-a[2])); }
+}
+function linePoint(L, f){
+  const target = f * L.len[L.len.length - 1];
+  for (let i = 1; i < L.pts.length; i++){
+    if (L.len[i] >= target){
+      const k = (target - L.len[i-1]) / (L.len[i] - L.len[i-1] || 1), a = L.pts[i-1], b = L.pts[i];
+      return [a[0] + (b[0]-a[0]) * k, a[1] + (b[1]-a[1]) * k, a[2] + (b[2]-a[2]) * k];
+    }
+  }
+  return L.pts[L.pts.length - 1];
+}
+// dir: +1 = belt → store (write), −1 = store → belt (read)
+function pulse(line, dir, tone){ if (line === 'recon' && pat !== 2) return; pulses.push({line, dir, t0:simNow, dur:1500, tone:tone || null}); }
+
+/* =====================================================================
+   SCENE DRAWING
+   ===================================================================== */
+// a wheel drawn on the visible side face of a truck; axis 'x' = face runs along x, 'y' = along y
+function wheel(x, y, z, axis, r, al){
+  const ring = rr => { const pts = []; for (let i = 0; i < 22; i++){ const t = i / 22 * Math.PI * 2, u = Math.cos(t) * rr, v = Math.sin(t) * rr; pts.push(axis === 'x' ? P(x + u, y, z + v) : P(x, y + u, z + v)); } return pts; };
+  ctx.globalAlpha = Math.max(0, al);
+  poly(ring(r), '#2b3243', INK, .8);
+  poly(ring(r * .45), '#c9d1e0', '#2b3243', .6);
+  ctx.globalAlpha = 1;
+}
+function drawTruckIn(){
+  const tin = trucks.in;
+  if (!tin || tin.state === 'gone') return;
+  const y0 = 8, off = tin.off, al = tin.alpha;
+  box(-77 + off, y0 + .5, 0, 4.5, 7, 5.5, ST.cab, {alpha:al});
+  box(-72.5 + off, y0, 0, 10, 8, 1, ST.dark, {alpha:al});
+  box(-72.5 + off, y0, 1, 10, 8, 8, ST.trailer, {alpha:al});
+  line(P(-72.5 + off, y0 + 8, 6), P(-62.5 + off, y0 + 8, 6), COL.erp, 2, null, al * .8);
+  for (const wx of [-75.3, -70.3, -65.2]) wheel(wx + off, wx < -73 ? y0 + 7.55 : y0 + 8.05, 1.05, 'x', 1.05, al);
+  if (al > .5) tag(-67 + off, y0 + 4, 9, tin.load > 0 ? `INBOUND TRUCK · ${tin.load} BOXES` : 'INBOUND TRUCK · EMPTY', 'plain', {align:'center', dy:-4, scale:.9});
+}
+// outbound truck backs onto the rear wall in the right-hand corner and drives away behind the building
+function drawTruckOut(){
+  const to = trucks.out;
+  if (!to || to.state === 'gone') return;
+  const x0 = -30, off = to.off, al = to.alpha;
+  box(x0 + .5, -38 + off, 0, 7, 4.5, 5.5, ST.cab, {alpha:al});
+  box(x0, -33.5 + off, 0, 8, 11.5, 1, ST.dark, {alpha:al});
+  box(x0, -33.5 + off, 1, 8, 11.5, 8, ST.trailer, {alpha:al});
+  line(P(x0 + 8, -33.5 + off, 6), P(x0 + 8, -22 + off, 6), COL.wms, 2, null, al * .8);
+  for (const wy of [-36.3, -31, -25.5]) wheel(wy < -34 ? x0 + 7.55 : x0 + 8.05, wy + off, 1.05, 'y', 1.05, al);
+  if (al > .5){
+    let text, st;
+    if (to.held){ text = 'TRUCK HELD · SHIP CONFIRM WAITING ON ERP'; st = 'bad'; }
+    else { text = to.load > 0 ? `OUTBOUND TRUCK · ${to.load} LOADED` : 'OUTBOUND TRUCK · AT DOCK'; st = to.load > 0 ? 'okP' : 'plain'; }
+    tag(x0 + 4, -28 + off, 9, text, st, {align:'center', dy:-4, scale:.9});
+  }
+}
+function stack(x0, y0, n, cols, rows, st){
+  const per = cols * rows; let i = 0;
+  for (let layer = 0; i < n; layer++){
+    for (let r = 0; r < rows && i < n; r++) for (let c = 0; c < cols && i < n; c++, i++)
+      box(x0 + c * 2.05, y0 + r * 2.05, 1.6 + layer * 1.55, 1.8, 1.8, 1.5, st || ST.goods, {lw:.7});
+    if (layer > 6) break;
+  }
+  return per;
+}
+function rack(x0, x1, y0, levels, perLevel, count, name){
+  const y1 = y0 + 4, zb = 1.2, H = levels * 4.4 + 1.2;
+  box(x0, y0, zb, .6, .6, H, ST.plat); box(x1 - .6, y0, zb, .6, .6, H, ST.plat);
+  let left = count;
+  for (let k = 0; k < levels; k++){
+    const z = zb + .8 + k * 4.4;
+    box(x0, y0, z - .5, x1 - x0, 4, .5, ST.plat);
+    const n = Math.min(perLevel, left); left -= n;
+    for (let i = 0; i < n; i++) box(x0 + .7 + i * 2.2, y0 + 1.1, z, 1.7, 1.7, 1.7, ST.goods, {lw:.7});
+  }
+  box(x0, y1 - .6, zb, .6, .6, H, ST.plat); box(x1 - .6, y1 - .6, zb, .6, .6, H, ST.plat);
+  const hi = S.flash['rack_' + name] > simNow;
+  tag((x0 + x1) / 2, y0 + 2, zb + H + .4, `${LOCNAME[name]} · ${count} boxes` + (left > 0 ? ` (+${left})` : ''), hi ? 'okP' : 'plain', {align:'center', dy:-4});
+}
+function drawAgent(a){
+  const [px, py] = P(a.x, a.y, 1.2), s = SC * 1.1;
+  ctx.fillStyle = 'rgba(24,34,58,.12)'; ctx.beginPath(); ctx.ellipse(px, py, s * 1.1, s * .42, 0, 0, Math.PI * 2); ctx.fill();
+  if (a.scanUntil > simNow){
+    const k = 1 - (a.scanUntil - simNow) / 900;
+    ctx.strokeStyle = a.color; ctx.lineWidth = 2; ctx.globalAlpha = 1 - k;
+    ctx.beginPath(); ctx.ellipse(px, py, s * (1.2 + k * 2.4), s * (.5 + k), 0, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  const sw = a.moving ? Math.sin(a.phase) * s * .55 : 0;
+  ctx.strokeStyle = INK; ctx.lineWidth = Math.max(1.5, s * .28); ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(px - s * .32, py - s * 1.25); ctx.lineTo(px - s * .32 + sw, py - s * .05);
+  ctx.moveTo(px + s * .32, py - s * 1.25); ctx.lineTo(px + s * .32 - sw, py - s * .05); ctx.stroke();
+  const bob = a.moving ? Math.abs(Math.sin(a.phase)) * s * .18 : 0;
+  ctx.fillStyle = a.alert === 'bad' ? COL.bad : a.alert === 'warn' ? COL.warn : a.color; ctx.lineWidth = 1; ctx.strokeStyle = INK;
+  rrect(px - s * .78, py - s * 3.2 - bob, s * 1.56, s * 2.1, s * .5); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#ffe3cc'; ctx.beginPath(); ctx.arc(px, py - s * 3.85 - bob, s * .62, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#f6c653'; ctx.beginPath(); ctx.arc(px, py - s * 3.95 - bob, s * .66, Math.PI, 0); ctx.fill(); ctx.stroke();
+  ctx.lineCap = 'butt';
+  if (a.carry) box(a.x + .4, a.y - .9, 1.2 + 1.4, 1.9, 1.9, 1.6, ST.goods, {lw:.8});
+  if (!SMALL) tag(a.x, a.y, 5.6, a.name, a.carry ? 'goods' : 'plain', {align:'center', dy:-6, scale:.82, weight:600, text:true});
+  const st = agentStatus(a);
+  if (st) tag(a.x, a.y, 1.2, st.text, st.tone, {align:'center', dy:24, scale:.92});
+}
+function agentStatus(a){
+  if (a.flash && a.flash.until > simNow) return a.flash;
+  if (a.waitTx && !a.waitTx.acked){
+    if (!S.link) return {text:`SCANNER BLOCKED · ${(S.blockedMs/1000).toFixed(1)}s`, tone:'bad'};
+    return {text:'WAITING FOR ERP REPLY', tone:'warn'};
+  }
+  if (a.queued) return {text:'SCANNER BUSY · IN LINE', tone:'warn'};
+  if (a.carry) return {text:`CARRYING ${a.carry}`, tone:'goods'};
+  return null;
+}
+function drawFloor(){
+  box(-62, -22, 0, 56, 44, 1.2, ST.wmsP);
+  // dock doors
+  poly([P(-62, 8, 1.2), P(-62, 16, 1.2), P(-62, 16, 7), P(-62, 8, 7)], 'rgba(38,50,74,.08)', INK, .8, [3, 2]);
+  poly([P(-30, -22, 1.2), P(-22, -22, 1.2), P(-22, -22, 7), P(-30, -22, 7)], 'rgba(38,50,74,.08)', INK, .8, [3, 2]);
+  // zones
+  const zone = (x0, y0, w, d, col, label, n) => {
+    poly([P(x0, y0, 1.25), P(x0 + w, y0, 1.25), P(x0 + w, y0 + d, 1.25), P(x0, y0 + d, 1.25)], col, INK, .8, [4, 3]);
+    tag(x0, y0 + d, 1.2, `${label} · ${n}`, 'plain', {dx:-2, dy:18, scale:.88});
+  };
+  zone(-60, 6, 13, 12, 'rgba(224,122,31,.10)', 'RECEIVING · RCV-DOCK', S.phys.rcv);
+  zone(-33, -20, 13, 10, 'rgba(15,157,122,.10)', 'SHIP STAGING', S.phys.stg);
+  // racks along the back wall
+  rack(-61, -47, -21, 3, 6, S.phys.a04, 'a04');
+  rack(-45, -35, -21, 3, 4, S.phys.b12, 'b12');
+  // goods stacks + agents sorted by depth
+  const items = [
+    {d:-54 + 10, f:() => stack(-56.5, 9.5, S.phys.rcv, 3, 2)},
+    {d:-29.5 - 17, f:() => stack(-29.5, -17, S.phys.stg, 3, 2)},
+    ...agents.map(a => ({d:a.x + a.y, f:() => drawAgent(a)})),
+  ].sort((a, b) => a.d - b.d);
+  for (const it of items) it.f();
+  box(-8, -4, 1.2, 6, 8, 3.8, ST.plat);          // scan station under belt start
+  tag(-62, 22, 0, SMALL ? 'WAREHOUSE' : 'WAREHOUSE FLOOR · WMS', 'wms', {align:'right', dx:40, dy:58, scale:1.18, weight:700});
+}
+function drawStores(){
+  box(12, -66, 0, 44, 24, 1.2, ST.storeP);
+  tag(56, -66, 27, SMALL ? 'DATA STORES' : 'DATA STORES · BIN A-04 RECORDS', 'store', {align:'right', dx:30, dy:-4, scale:1.1, weight:700});
+  const d = S.disp;
+  const towers = [['shelf', 'SHELF (PHYSICAL)', d.phys, S.phys.a04, ST.shelfT, 'okP'], ['wms', 'WMS DB', d.wms, S.wms.a04, ST.wmsT, 'wmsP'], ['erp', 'ERP DB', d.erp, S.erp.a04, ST.erpT, 'erpP']];
+  for (const [k, name, val, real, st0, ts0] of towers){
+    const x = TOWER[k], h = Math.max(.2, val * .62);
+    const mism = k !== 'shelf' && real !== S.phys.a04, sev = mism ? mismatchSeverity() : null;
+    const st = st0;
+    const flash = S.flash[k] > simNow;
+    box(x - 3.5, -58, 1.2, 7, 7, h, st, {lw:flash || sev ? 2.2 : .9, stroke:flash ? COL.store : sev === 'bad' ? COL.bad : sev === 'flight' ? COL.warn : INK});
+    ctx.globalAlpha = .3;
+    for (let i = 5; i < val; i += 5){ const z = 1.2 + i * .62; line(P(x - 3.5, -51, z), P(x + 3.5, -51, z), INK, .7); line(P(x + 3.5, -58, z), P(x + 3.5, -51, z), INK, .7); }
+    ctx.globalAlpha = 1;
+    const ts = k === 'shelf' ? 'ok' : k === 'wms' ? 'wms' : 'erp';
+    tag(x, -54.5, 1.2 + h, `${SMALL ? name.split(' ')[0] : name} ${Math.round(val)}${sev === 'bad' ? ' ≠ SHELF' : ''}`, ts, {align:'center', dy:-6, scale:.95, weight:700});
+  }
+  if (!SMALL){ const r = reconStatus(); tag(56, -42, 0, r.text, r.tone, {align:'right', dy:30, scale:.95}); }
+}
+function drawLines(){
+  for (const k in LINES){
+    if (k === 'recon' && pat !== 2) continue;
+    const L = LINES[k];
+    for (let i = 1; i < L.pts.length; i++) line(P(...L.pts[i-1]), P(...L.pts[i]), L.col, 1.6, k === 'shelf' ? [5, 4] : null, .55);
+    const e = L.pts[L.pts.length - 1], [ex, ey] = P(...e);
+    ctx.fillStyle = L.col; ctx.beginPath(); ctx.arc(ex, ey, 3, 0, Math.PI * 2); ctx.fill();
+  }
+  for (const p of pulses){
+    const f = Math.min(1, (simNow - p.t0) / p.dur), L = LINES[p.line];
+    const col = p.tone === 'bad' ? COL.bad : L.col;
+    for (let t = 0; t < 4; t++){
+      const ff = p.dir > 0 ? f - t * .025 : 1 - f + t * .025;
+      if (ff < 0 || ff > 1) continue;
+      const [sx, sy] = P(...linePoint(L, ff));
+      ctx.globalAlpha = 1 - t * .25; ctx.fillStyle = col; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(sx, sy, (t ? 3 : 5) * Math.min(1.2, SC / 7), 0, Math.PI * 2); ctx.fill(); if (!t) ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+function gateState(i){
+  let st = null;
+  for (const p of parcels){ if (p.at !== i) continue; if (p.blocked) return 'red'; st = st || (p.wait ? 'amber' : 'active'); }
+  return st;
+}
+function drawBelt(){
+  STAGES[pat].forEach((s, i) => {
+    box(G[i] - 5.5, -9, 0, 11, 18, .6, ST.plat);
+    tag(G[i] - 5.5, 9, .6, SMALL ? `0${i+1}` : `0${i+1} ${s[0]}`, 'plain', {align:'right', dx:-2, dy:FS + 15, scale:.92});
+  });
+  const down = !S.link;
+  poly([P(LINK_X - 2.2, -12, .05), P(LINK_X + 2.2, -12, .05), P(LINK_X + 2.2, 12, .05), P(LINK_X - 2.2, 12, .05)], down ? 'rgba(214,51,74,.15)' : 'rgba(107,79,216,.08)', down ? COL.bad : COL.store, 1, [4, 3]);
+  for (const x of G) box(x - .6, -.6, .6, 1.2, 1.2, BELT_Z - 1.6, ST.plat);
+  box(-8, -3.5, BELT_Z - 1, 94, 7, 1, ST.belt);
+  ctx.globalAlpha = .5;
+  if (pat === 1){
+    line(P(-8, 0, BELT_Z), P(86, 0, BELT_Z), INK, .8, [3, 3]);
+    for (let x = 2; x < 84; x += 10){ chevron(x + 2.5, -1.75, 1); chevron(x - 2.5, 1.75, -1); }
+  } else for (let x = 2; x < 84; x += 8) chevron(x, 0, 1);
+  ctx.globalAlpha = 1;
+  for (let i = 0; i < 6; i++) box(G[i] - .4, -4.3, BELT_Z, .8, .8, 7.2, ST.plat);
+}
+function chevron(x, y, dir){
+  const a = P(x - dir * .8, y - .9, BELT_Z), b = P(x + dir * .6, y, BELT_Z), c = P(x - dir * .8, y + .9, BELT_Z);
+  ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(c[0], c[1]); ctx.strokeStyle = INK; ctx.lineWidth = .9; ctx.stroke();
+}
+function drawGatesFront(){
+  for (let i = 0; i < 6; i++){
+    const gs = gateState(i);
+    const st = gs === 'red' ? ST.red : gs === 'amber' ? ST.amber : gs === 'active' ? (pat === 1 ? ST.orange : ST.blue) : ST.plat;
+    box(G[i] - .4, 3.5, BELT_Z, .8, .8, 7.2, ST.plat);
+    box(G[i] - .4, -4.3, BELT_Z + 7.2, .8, 8.6, .9, st);
+  }
+  const down = !S.link, col = down ? COL.bad : COL.store;
+  line(P(LINK_X, -12, 0), P(LINK_X, -12, 17), col, 1.3, [5, 3]);
+  line(P(LINK_X, 12, 0), P(LINK_X, 12, 17), col, 1.3, [5, 3]);
+  line(P(LINK_X, -12, 17), P(LINK_X, 12, 17), col, 1.3, [5, 3]);
+  tag(LINK_X, 0, 17, down ? 'INTEGRATION LINK · 504 DOWN' : 'INTEGRATION LINK · ONLINE', down ? 'bad' : 'storeP', {align:'center', dy:-4, scale:.95});
+}
+function drawParcels(){
+  const list = parcels.slice().sort((a, b) => (a.x + a.y) - (b.x + b.y) || a.z - b.z);
+  for (const p of list){
+    const s = p.size;
+    box(p.x - s/2, p.y - s/2, p.z, s, s, s * .72, p.style(), {alpha:p.alpha, lw:.9});
+    const lab = p.label && p.label();
+    if (lab && p.alpha > .3){
+      const isAck = lab.text.startsWith('ACK');           // ACK labels ride below their box so they never cover the parcel label above
+      tag(p.x, p.y, isAck ? p.z : p.z + s * .72, lab.text, lab.tone, {align:'center', dy:isAck ? 24 : -5, alpha:p.alpha, scale:.9, mono:true});
+    }
+  }
+}
+function drawErp(){
+  box(82, -15, 0, 24, 30, 1.2, ST.erpP);
+  tag(106, 15, 0, SMALL ? 'ERP' : 'ERP · FINANCE LEDGER', 'erp', {dx:18, dy:12, scale:1.18, weight:700});
+  box(82, -4, 1.2, 6, 8, 3.8, ST.plat);
+  box(91, -10, 1.2, 13, 13, 18, ST.plat);
+  ctx.globalAlpha = .45;
+  for (let z = 4; z < 18; z += 3){ line(P(91, 3, 1.2 + z), P(104, 3, 1.2 + z), INK, .7); line(P(104, -10, 1.2 + z), P(104, 3, 1.2 + z), INK, .7); }
+  ctx.globalAlpha = 1;
+  tag(97.5, -3.5, 19.4, `LEDGER A-04 · ${S.erp.a04}`, S.erp.a04 === S.phys.a04 ? 'ink' : mismatchSeverity() === 'bad' ? 'bad' : 'warn', {align:'center', dy:-6});
+  const act = S.financeTag && S.financeTag.until > simNow;
+  finance.alert = act ? (S.financeTag.tone === 'bad' ? 'bad' : 'warn') : null;
+  drawAgentBare(finance);
+  if (act) tag(finance.x, finance.y, 6, S.financeTag.text, S.financeTag.tone, {align:'center', dy:-4, scale:.92});
+  else if (!SMALL) tag(finance.x, finance.y, 6, 'FINANCE USER', 'muted', {align:'center', dy:-4, scale:.85});
+}
+const finance = {x:89, y:10, color:'#8b95ab', moving:false, phase:0};
+function drawAgentBare(a){
+  const [px, py] = P(a.x, a.y, 1.2), s = SC * 1.05;
+  ctx.fillStyle = 'rgba(24,34,58,.12)'; ctx.beginPath(); ctx.ellipse(px, py, s, s * .4, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = a.alert === 'bad' ? COL.bad : a.alert === 'warn' ? COL.erp : a.color; ctx.strokeStyle = INK; ctx.lineWidth = 1;
+  rrect(px - s * .78, py - s * 3.1, s * 1.56, s * 3, s * .5); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#ffe3cc'; ctx.beginPath(); ctx.arc(px, py - s * 3.75, s * .62, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+}
+function drawRail(){
+  if (pat !== 2) return;
+  line(P(82, 16, .4), P(-6, 16, 1.2), COL.erp, 1.2, [3, 4], .6);
+  for (const r of rail){
+    const s = r.big ? 2.8 : 1.3;
+    box(r.x - s/2, 16 - s/2, .4, s, s, s, r.big ? ST.orange : ST.erpT, {lw:.8});
+    if (r.label) tag(r.x, 16, .4 + s, r.label, 'erp', {align:'center', dy:-6, scale:.9});
+    else if (r.ref && !SMALL) tag(r.x, 16, .4 + s, `REFERENCE DATA · ${r.ref}`, 'erpP', {align:'center', dy:-5, scale:.78});
+  }
+}
+function drawEffects(){
+  for (const e of effects){
+    if (e.until < simNow) continue;
+    const k = Math.min(1, (e.until - simNow) / 600);
+    if (e.cross){
+      const [x, y] = P(e.x, e.y, e.z);
+      ctx.globalAlpha = k; ctx.strokeStyle = COL.bad; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(x - 10, y - 10); ctx.lineTo(x + 10, y + 10); ctx.moveTo(x + 10, y - 10); ctx.lineTo(x - 10, y + 10); ctx.stroke(); ctx.globalAlpha = 1;
+    }
+    if (e.text) tag(e.x, e.y, e.z, e.text, e.tone, {align:e.align || 'center', dy:e.dy || -6, alpha:k});
+  }
+}
+function draw(){
+  ctx.clearRect(0, 0, CW, CH);
+  drawStores();
+  drawLines();
+  drawTruckIn();
+  drawTruckOut();
+  drawFloor();
+  drawBelt();
+  drawParcels();
+  drawGatesFront();
+  drawRail();
+  drawErp();
+  drawEffects();
+  paintTags();
+}
+
+/* =====================================================================
+   SIMULATION: parcels, agents, trucks
+   ===================================================================== */
+function parcel(o){
+  const p = Object.assign({x:-6, y:0, z:BELT_Z, tz:BELT_Z, size:3.6, alpha:0, speed:V, route:[], i:0, state:'move', t:0, at:-1, dead:false, wait:false, blocked:false, style:() => ST.blue, label:null}, o);
+  parcels.push(p); return p;
+}
+function stepParcels(dt){
+  const groups = {};
+  for (const p of parcels){
+    if (p.state !== 'exit' && p.alpha < 1) p.alpha = Math.min(1, p.alpha + dt / 300);
+    if (p.state === 'move'){
+      const s = p.route[p.i], step = p.speed * dt / 1000;
+      if (Math.abs(s.x - p.x) <= step){ p.x = s.x; p.at = s.gate === undefined ? -1 : s.gate; if (p.row && s.gate !== undefined) p.row.at = s.gate; if (s.fn) s.fn(p); p.t = s.dwell === undefined ? DWELL : s.dwell; p.state = 'dwell'; }
+      else p.x += Math.sign(s.x - p.x) * step;
+    }
+    if (p.state === 'dwell'){ p.t -= dt; if (p.t <= 0) p.state = 'hold'; }
+    if (p.state === 'hold'){
+      const s = p.route[p.i], h = s.hold ? s.hold(p) : false;
+      p.wait = !!h; p.blocked = h === 'blocked';
+      if (h){ if (p.holdSeq === undefined) p.holdSeq = ++seq; (groups[s.x + '|' + p.y] = groups[s.x + '|' + p.y] || []).push(p); }
+      else {
+        p.holdSeq = undefined; if (s.leave) s.leave(p);
+        p.i++; p.at = -1; if (p.row && p.row.at !== undefined) p.row.at = -1;
+        if (p.i >= p.route.length){ p.state = 'exit'; p.t = 500; } else p.state = 'move';
+      }
+    }
+    if (p.state === 'exit'){ p.t -= dt; p.alpha = Math.max(0, p.t / 500); if (p.t <= 0) p.dead = true; }
+    if (!p.wait) p.tz = BELT_Z;
+  }
+  for (const k in groups) groups[k].sort((a, b) => a.holdSeq - b.holdSeq).forEach((p, i) => { p.tz = BELT_Z + i * 2.9; });
+  for (const p of parcels) p.z += (p.tz - p.z) * Math.min(1, dt / 120);
+  parcels = parcels.filter(p => !p.dead);
+  for (const r of rail){ r.x -= r.speed * dt / 1000; if (r.x <= -6){ r.dead = true; r.onArrive && r.onArrive(); } }
+  rail = rail.filter(r => !r.dead);
+  pulses = pulses.filter(p => {
+    if (simNow - p.t0 >= p.dur){ if (p.dir > 0) S.flash[p.line] = simNow + 700; return false; }
+    return true;
+  });
+  effects = effects.filter(e => e.until >= simNow);
+}
+
+function mkAgent(name, color, home){ return {name, color, x:home.x, y:home.y, home, path:[], moving:false, phase:0, carry:0, resolve:null, scanUntil:0, flash:null, waitTx:null, queued:false, alert:null}; }
+function walk(a, pt){
+  const path = [];
+  if (Math.abs(a.y - 3) > .1 || Math.abs(a.x - pt.x) > .1){ path.push({x:a.x, y:3}); path.push({x:pt.x, y:3}); }
+  path.push({x:pt.x, y:pt.y});
+  a.path = path.filter((q, i, arr) => i === 0 ? (Math.abs(q.x - a.x) + Math.abs(q.y - a.y) > .05) : (Math.abs(q.x - arr[i-1].x) + Math.abs(q.y - arr[i-1].y) > .05));
+  return new Promise(res => { if (!a.path.length) res(); else a.resolve = res; });
+}
+function stepAgents(dt){
+  for (const a of agents){
+    a.alert = null;
+    const st = agentStatus(a); if (st && (st.tone === 'bad' || st.tone === 'warn')) a.alert = st.tone;
+    if (!a.path.length){ a.moving = false; continue; }
+    const q = a.path[0], step = WALK_V * dt / 1000, dx = q.x - a.x, dy = q.y - a.y, dist = Math.hypot(dx, dy);
+    a.moving = true; a.phase += dt * .014;
+    if (dist <= step){ a.x = q.x; a.y = q.y; a.path.shift(); if (!a.path.length){ a.moving = false; const r = a.resolve; a.resolve = null; r && r(); } }
+    else { a.x += dx / dist * step; a.y += dy / dist * step; }
+  }
+}
+function stepTrucks(dt){
+  for (const k in trucks){
+    const t = trucks[k];
+    if (t.state === 'arriving'){ t.off = Math.min(0, t.off + dt / 1000 * 18); t.alpha = Math.min(1, t.alpha + dt / 600); if (t.off >= 0) t.state = 'docked'; }
+    if (t.state === 'leaving'){ t.off -= dt / 1000 * 18; t.alpha = Math.max(0, t.alpha - dt / 2200); if (t.alpha <= 0) t.state = 'gone'; }
+  }
+}
+function truckArrive(k, load){ trucks[k] = {state:'arriving', off:-40, alpha:0, load, held:false}; }
+function truckLeave(k){ if (trucks[k]) trucks[k].state = 'leaving'; }
+
+/* ---------- ledger rows ---------- */
+function newRow(o){
+  const r = Object.assign({id:'', type:'', title:'', dest:'→ ERP', stage:0, status:'active', mark:{}, text:{}, isNew:true, at:-1, org:'wms'}, o);
+  rows.unshift(r); if (rows.length > 8) rows.pop();
+  focusRow = r; return r;
+}
+function reach(row, i, text, mark){ row.stage = Math.max(row.stage, i + 1); row.text[i] = text; if (mark) row.mark[i] = mark; else delete row.mark[i]; }
+const sgn = n => (n > 0 ? '+' : n < 0 ? '−' : '±') + Math.abs(n);
+const fmtDelta = d => Object.keys(d).map(k => `${LOCNAME[k]} ${sgn(d[k])}`).join(' · ');
+const snapText = s => Object.keys(s).map(k => `${LOCNAME[k]}=${s[k]}`).join(' · ');
+const mainLoc = d => ('a04' in d) ? 'a04' : Object.keys(d)[0];
+
+/* =====================================================================
+   FLOOR TASKS (agents move goods, then scan)
+   ===================================================================== */
+const KIND = {
+  RECEIVE: {pre:'RCV', title:q => `Receive ${q} · truck → RCV-DOCK`},
+  PUTAWAY: {pre:'PUT', title:q => `Put away ${q} · RCV-DOCK → A-04`},
+  PICK:    {pre:'PK',  title:q => `Pick ${q} · A-04 → STAGE`},
+  TRANSFER:{pre:'TRF', title:(q, f, t) => `Transfer ${q} · ${LOCNAME[f || 'a04']} → ${LOCNAME[t || 'b12']}`},
+  SHIP:    {pre:'SHP', title:q => `Ship ${q} · STAGE → truck`},
+};
+function deltaFor(q, from, to){ const d = {}; if (from !== 'truckIn') d[from] = -q; if (to !== 'truckOut') d[to] = (d[to] || 0) + q; return d; }
+function physTake(from, q){ if (from === 'truckIn'){ trucks.in.load -= q; } else { S.phys[from] -= q; if (from === 'a04' || from === 'b12'){ S.flash['rack_' + from] = simNow + 700; if (from === 'a04') pulse('shelf', 1); } } }
+function physPut(to, q){ if (to === 'truckOut'){ trucks.out.load += q; } else { S.phys[to] += q; if (to === 'a04' || to === 'b12'){ S.flash['rack_' + to] = simNow + 700; if (to === 'a04') pulse('shelf', 1); } } }
+
+async function task(a, kind, q, from, to, o){
+  o = o || {};
+  await walk(a, LOC[from]);
+  const delta = deltaFor(q, from, to), title = KIND[kind].title(q, from, to);
+  a.scanUntil = simNow + 900;
+  const tx = pat === 1 ? m1Txn(kind, delta, title, a) : m2Txn(kind, delta, title, o);
+  if (tx.rejected){
+    a.flash = {text:`CAN'T PICK · WMS SAYS ${S.wms.a04}, SHELF HAS ${S.phys.a04}`, tone:'bad', until:simNow + 7000};
+    await wait(7000); walk(a, a.home); return tx;
+  }
+  if (pat === 1){
+    a.waitTx = tx; if (kind === 'SHIP') trucks.out.held = true;
+    await until(() => tx.acked);
+    a.waitTx = null; if (kind === 'SHIP') trucks.out.held = false;
+  }
+  await wait(250);
+  physTake(from, q); a.carry = q;
+  await walk(a, LOC[to]);
+  await wait(250);
+  a.carry = 0; physPut(to, q);
+  if (kind === 'SHIP') truckLeave('out');
+  if (!o.stay) walk(a, a.home);
+  return tx;
+}
+// Pattern A: someone moves goods following ERP paperwork, with no WMS scan
+async function physMove(a, q, from, to){
+  await walk(a, LOC[from]); await wait(250);
+  physTake(from, q); a.carry = q;
+  a.flash = {text:'MOVING PER ERP PAPER · NO WMS SCAN', tone:'warn', until:simNow + 5500};
+  await walk(a, LOC[to]); await wait(250);
+  a.carry = 0; physPut(to, q); walk(a, a.home);
+}
+
+/* =====================================================================
+   PATTERN A — bi-directional balance sync
+   ===================================================================== */
+function m1Txn(kind, delta, title, agent){
+  const locs = Object.keys(delta);
+  for (const l of locs) if (delta[l] < 0 && S.wms[l] < -delta[l]){
+    const row = newRow({id:nextId(KIND[kind].pre), type:kind, title, dest:'REJECTED', status:'rejected'});
+    reach(row, 0, `${agent.name} scans A-04. WMS says ${S.wms[l]} on hand, task needs ${-delta[l]}, and ${S.phys[l]} boxes are on the shelf`, 'b');
+    effects.push({x:-38, y:-19, z:21, text:`PHANTOM STOCK · ${S.phys.a04 - S.wms.a04} BOXES HIDDEN`, tone:'bad', until:simNow + 7000});
+    return {rejected:true, row};
+  }
+  const row = newRow({id:nextId(KIND[kind].pre), type:kind, title});
+  const tx = {kind, row, acked:false, read:null, snap:null}; S.m1n++; S.lastTx = tx;
+  const ml = mainLoc(delta);
+  const p = parcel({y:-1.75, row,
+    style:() => p.blocked ? ST.red : ST.blue,
+    label:() => tx.snap ? {text:`${LOCNAME[ml]}=${tx.snap[ml]}`, tone:p.blocked ? 'bad' : 'wms'} : {text:`${kind} ${LOCNAME[ml]} ${sgn(delta[ml])}`, tone:'plain'}});
+  p.route = [
+    {x:G[0], gate:0, fn(){ reach(row, 0, `${agent.name} scans · ${fmtDelta(delta)}. The scanner locks`); }},
+    {x:G[1], gate:1, fn(){ tx.read = {}; tx.erpAt = {}; for (const l of locs){ tx.read[l] = S.wms[l]; tx.erpAt[l] = S.erp[l]; } pulse('wms', -1); reach(row, 1, `Reads WMS DB: ${snapText(tx.read)}`); }},
+    {x:G[2], gate:2, fn(){ tx.snap = {}; for (const l of locs) tx.snap[l] = tx.read[l] + delta[l]; reach(row, 2, `Sends balances "${snapText(tx.snap)}"`); }},
+    {x:G[3], gate:3, fn(){ reach(row, 3, 'Synchronous ERP call · worker waits'); },
+      hold(){ if (!S.link){ reach(row, 3, '504 Gateway Timeout · floor blocked', 'b'); return 'blocked'; } return false; },
+      leave(){ reach(row, 3, 'ERP answered'); }},
+    {x:G[4], gate:4, fn(){
+      const lost = locs.filter(l => S.erp[l] !== tx.erpAt[l]);
+      const was = {}; for (const l of locs){ was[l] = S.erp[l]; S.erp[l] = tx.snap[l]; }
+      pulse('erp', 1, lost.length ? 'bad' : null);
+      if (lost.length){
+        S.lost = true; const l = lost[0];
+        reach(row, 4, `LOST UPDATE: ERP DB had ${LOCNAME[l]}=${was[l]}, overwritten with ${tx.snap[l]}`, 'b');
+        effects.push({x:G[4], y:-4, z:20, text:`LOST UPDATE · a newer change to ${LOCNAME[l]} was overwritten`, tone:'bad', until:simNow + 6500});
+      } else reach(row, 4, `ERP DB := ${snapText(tx.snap)}`);
+    }},
+    {x:G[5], gate:5, dwell:300, fn(){
+      reach(row, 5, 'ERP replies · ACK travels back to the floor');
+      const ack = parcel({x:G[5], y:1.75, size:1.9, speed:22, style:() => ST.teal, label:() => ({text:`ACK ${row.id} · ${snapText(tx.snap)} saved`, tone:'ok'})});
+      ack.route = [{x:-6, dwell:0, fn(){
+        for (const l of locs) S.wms[l] = tx.snap[l];
+        pulse('wms', 1); S.m1n--; tx.acked = true;
+        reach(row, 5, `WMS DB := ${snapText(tx.snap)} · scanner unlocks`); row.status = 'done';
+      }}];
+    }},
+    {x:86, dwell:0},
+  ];
+  return tx;
+}
+function m1ErpChange(kind, delta, title){
+  const row = newRow({id:nextId('JR'), type:'ERP ' + kind, title, dest:'→ WMS', org:'erp'});
+  for (const l in delta) S.erp[l] += delta[l];
+  const snap = {}; for (const l in delta) snap[l] = S.erp[l];
+  pulse('erp', 1);
+  reach(row, 0, `Finance posts ${title} in the ERP`);
+  reach(row, 1, `ERP DB now ${snapText(snap)}`);
+  reach(row, 2, `Pushes "${snapText(snap)}" to the WMS`);
+  S.financeTag = {text: kind === 'TRANSFER' ? 'POSTS TRANSFER 3 · A-04 → B-12' : `POSTS WRITE-OFF −${-delta.a04}`, tone:'erpP', until:simNow + 6000};
+  const ml = mainLoc(delta);
+  const p = parcel({x:86, y:1.75, row, style:() => p.blocked ? ST.red : ST.orange, label:() => ({text:`${LOCNAME[ml]}=${snap[ml]}`, tone:'erp'})});
+  p.route = [
+    {x:G[3], gate:3, dwell:0, hold(){ return S.link ? false : 'blocked'; }, fn(){ reach(row, 3, 'Crosses the link'); }},
+    {x:-6, dwell:200, fn(){
+      const was = S.wms[ml]; for (const l in snap) S.wms[l] = snap[l];
+      const bad = S.wms.a04 !== S.phys.a04;
+      pulse('wms', 1, bad ? 'bad' : null);
+      reach(row, 4, `WMS DB overwritten: ${LOCNAME[ml]} ${was} → ${snap[ml]}`, bad ? 'b' : null);
+      reach(row, 5, bad ? `The shelf holds ${S.phys.a04}. Nobody knows` : 'Balances equal'); row.status = 'done';
+      if (bad && kind === 'WRITE-OFF') effects.push({x:-38, y:-19, z:21, text:`WMS := ${snap.a04} · SHELF HAS ${S.phys.a04}`, tone:'bad', until:simNow + 6500});
+    }},
+  ];
+  return p;
+}
+
+/* =====================================================================
+   PATTERN B — decoupled custody + outbox
+   ===================================================================== */
+function outbox(){ return events.filter(e => e.committed && !e.acked); }
+function m2Txn(kind, delta, title, o){
+  o = o || {};
+  const row = newRow({id:o.id || nextId(KIND[kind].pre), type:kind, title});
+  const parent = o.parentKind ? [...events].reverse().find(e => e.kind === o.parentKind) : null;
+  const ev = {key:'evt-' + String(++S.evSeq).padStart(4, '0'), kind, delta, committed:false, posted:false, acked:false, row, parent};
+  events.push(ev);
+  const ml = mainLoc(delta);
+  const p = parcel({y:0, row, ev, style:() => p.blocked ? ST.red : p.wait ? ST.amber : ST.blue,
+    label:() => ({text:`${ev.committed ? ev.key : kind} · ${LOCNAME[ml]} ${sgn(delta[ml])}`, tone:p.wait ? 'warn' : 'plain'})});
+  p.route = [
+    {x:G[0], gate:0, fn(){ reach(row, 0, `Scanned · ${fmtDelta(delta)}. The worker keeps moving`); }},
+    {x:G[1], gate:1, fn(){ for (const l in delta) S.wms[l] += delta[l]; ev.committed = true; pulse('wms', 1); reach(row, 1, `WMS DB committed locally: ${fmtDelta(delta)}`); }},
+    {x:G[2], gate:2, fn(){ reach(row, 2, `${ev.key} queued in the outbox`); },
+      hold(){
+        const ob = outbox().filter(e => !e.posted);
+        if (!S.link){ reach(row, 2, `${ev.key} held · ERP down, retrying with backoff`, 'w'); return true; }
+        if (ev.parent && !ev.parent.posted){ reach(row, 2, `${ev.key} waits for its parent ${ev.parent.key} (receipt)`, 'w'); return true; }
+        if (ob[0] && ob[0] !== ev){ reach(row, 2, `${ev.key} queued behind ${ob[0].key}`, 'w'); return true; }
+        return false;
+      },
+      leave(){ reach(row, 2, `${ev.key} released · ${fmtDelta(delta)}` + (ev.parent ? ` (after ${ev.parent.key})` : '')); }},
+    {x:G[3], gate:3, fn(){ reach(row, 3, 'Delivered across the link'); }},
+    {x:G[4], gate:4, fn(){ postEvent(p); }},
+    {x:G[5], gate:5, hold(){ return !ev.acked; }, leave(){ ackEvent(p); }},
+    {x:86, dwell:0},
+  ];
+  return {row, ev};
+}
+function postEvent(p){
+  const ev = p.ev, row = ev.row;
+  if (ev.posted){
+    S.dupSeen = true; pulse('erp', -1);
+    reach(row, 4, `Duplicate ${ev.key} ignored · key already posted`);
+    effects.push({x:G[4], y:0, z:19, text:`DUPLICATE ${ev.key} · IGNORED`, tone:'warn', until:simNow + 5000});
+    sendAck(p, true);
+    return;
+  }
+  for (const l in ev.delta) S.erp[l] += ev.delta[l];
+  ev.posted = true; pulse('erp', 1);
+  reach(row, 4, `ERP DB posts Δ ${fmtDelta(ev.delta)} · sends ACK`);
+  sendAck(p, false);
+}
+// the ACK travels back from the ERP (gate 05) to the outbox (gate 03) and clears that entry
+function sendAck(p, dupe){
+  const ev = p.ev, row = ev.row, ml = mainLoc(ev.delta);
+  const lose = S.loseAck && !dupe; if (lose) S.loseAck = false;
+  const a = parcel({x:G[4], y:2.3, size:1.9, speed:20, style:() => ST.teal,
+    label:() => ({text: dupe ? `ACK ${ev.key} · already posted` : `ACK ${ev.key} · ${ev.kind} ${LOCNAME[ml]} ${sgn(ev.delta[ml])} posted`, tone:'ok'})});
+  if (lose){
+    p.route.length = p.i + 1;                         // this copy stops at Post
+    a.route = [{x:LINK_X, dwell:0, fn(){
+      a.route.length = a.i + 1;
+      reach(row, 4, `ERP posted Δ ${fmtDelta(ev.delta)}, but the ACK was lost · WMS will resend`, 'w');
+      effects.push({x:LINK_X, y:2.3, z:BELT_Z + 3, cross:true, until:simNow + 1400});
+      effects.push({x:LINK_X, y:0, z:21, text:`ACK FOR ${ev.key} LOST · RESENDING`, tone:'bad', until:simNow + 4000});
+      after(900, () => {
+        const g = parcel({x:G[2], y:0, row, ev, style:() => ST.blue, label:() => ({text:`↻ ${ev.key} · ${LOCNAME[ml]} ${sgn(ev.delta[ml])}`, tone:'warn'})});
+        g.route = [{x:G[3], gate:3, fn(){ reach(row, 3, 'Resent across the link (no ACK yet)'); }}, {x:G[4], gate:4, fn(){ postEvent(g); }}, {x:G[5], gate:5, hold(){ return !ev.acked; }, leave(){ ackEvent(g); }}, {x:86, dwell:0}];
+      });
+    }}];
+    return;
+  }
+  a.route = [{x:G[2], dwell:0, fn(){
+    ev.acked = true;
+    reach(row, 4, dupe ? 'Duplicate ignored · ACK received, outbox entry cleared' : `ERP DB posted Δ ${fmtDelta(ev.delta)} · ACK received, outbox entry cleared`);
+  }}];
+}
+function ackEvent(p){
+  const ev = p.ev, row = ev.row;
+  row.status = 'done'; pulse('recon', -1);
+  const q = outbox().reduce((s, e) => s + (e.delta.a04 || 0), 0);
+  reach(row, 5, `Check A-04: WMS ${S.wms.a04} − ERP ${S.erp.a04} = still queued ${sgn(q)} ✓`);
+}
+function m2ErpRequest(kind, q, from, to, agent){
+  const id = nextId(KIND[kind].pre);
+  S.financeTag = {text:`REQUESTS TRANSFER ${q} · ROUTED TO WMS`, tone:'erpP', until:simNow + 6000};
+  return new Promise(res => rail.push({x:82, speed:26, big:true, label:`${kind} ${q} REQUEST · A-04 IN WMS CUSTODY → FLOOR TASK`, onArrive(){ task(agent, kind, q, from, to, {id}).then(res); }}));
+}
+function m2ErpWriteOff(q){
+  const row = newRow({id:nextId('JR'), type:'ERP WRITE-OFF', title:`Books-only write-off ${q}`, dest:'REJECTED', status:'rejected', org:'erp'});
+  reach(row, 0, `Finance tries to write off ${q} on A-04. Rejected: WMS custody`, 'b');
+  S.financeTag = {text:`WRITE-OFF −${q} · REJECTED`, tone:'bad', until:simNow + 7500};
+  effects.push({x:85, y:0, z:6, cross:true, until:simNow + 7500});
+  effects.push({x:97.5, y:-3.5, z:26, text:'REJECTED · A-04 IS IN WMS CUSTODY', tone:'bad', until:simNow + 7500});
+  effects.push({x:97.5, y:-3.5, z:22.5, text:'CHANGE STOCK THROUGH A FLOOR COUNT', tone:'badP', until:simNow + 7500});
+}
+const REFS = ['ITEM MASTER · SKU-8820', 'SALES ORDER · SO-1107', 'PURCHASE ORDER · PO-4402', 'CUSTOMER · C-2231', 'UNIT OF MEASURE · EA/CASE'];
+let refN = 0;
+function ambientRail(){ after(4200, () => { if (pat === 2 && !rail.some(r => r.big)) rail.push({x:82, speed:20, ref:REFS[refN++ % REFS.length]}); ambientRail(); }); }
+
+/* =====================================================================
+   RECONCILIATION
+   ===================================================================== */
+function m1Busy(){ return S.m1n > 0 || parcels.some(p => p.row && p.row.org === 'erp' && p.state !== 'exit'); }
+function mismatchSeverity(){
+  if (pat === 2){ const q = outbox().length; return (parcels.length || q || agents.some(a => a.carry)) ? 'flight' : 'bad'; }
+  return m1Busy() || agents.some(a => a.carry) ? 'flight' : 'bad';
+}
+function reconStatus(){
+  if (pat === 2){
+    const q = outbox().reduce((s, e) => s + (e.delta.a04 || 0), 0);
+    if (S.wms.a04 - S.erp.a04 !== q) return {text:`A-04 · WMS ${S.wms.a04} − ERP ${S.erp.a04} ≠ OUTBOX ${sgn(q)} · CONFIRMING`, tone:'warn'};
+    return {text:`A-04 · WMS ${S.wms.a04} − ERP ${S.erp.a04} = OUTBOX ${sgn(q)} ✓`, tone:q ? 'okP' : 'ok'};
+  }
+  const busy = m1Busy();
+  if (S.wms.a04 !== S.erp.a04) return {text:`SPLIT-BRAIN · WMS ${S.wms.a04} ≠ ERP ${S.erp.a04}`, tone:busy ? 'warn' : 'bad'};
+  if (busy) return {text:'BALANCES IN FLIGHT · NO EVENT TRAIL', tone:'warn'};
+  if (S.wms.a04 !== S.phys.a04) return {text:`BOTH SAY ${S.wms.a04} · SHELF HAS ${S.phys.a04} · NO TRAIL`, tone:'bad'};
+  return {text:'IN SYNC · NO EVENT TRAIL', tone:'ink'};
+}
+
+/* =====================================================================
+   SCENARIOS
+   ===================================================================== */
+function capOverflow(){
+  const c = document.getElementById('caption');
+  document.getElementById('capMore').classList.toggle('show', c.scrollHeight > c.clientHeight + 2);
+  document.getElementById('capFullText').innerHTML = c.innerHTML;
+}
+function cap(html){
+  const c = document.getElementById('caption');
+  if (ff){ c.innerHTML = html; capOverflow(); return; }
+  c.style.opacity = 0; setTimeout(() => { c.innerHTML = html; c.style.opacity = 1; capOverflow(); }, 160);
+}
+function inc(i){ S.incident = i; renderScen(); }
+const idle = () => parcels.length === 0 && !rail.some(r => r.big) && agents.every(a => !a.path.length && !a.carry) && !Object.values(trucks).some(t => t.state === 'arriving' || t.state === 'leaving');
+let PK, HD, RP;   // agents
+
+const SCRIPT = {
+  1: [
+    async () => {
+      inc(0);
+      cap('<b>Pattern A · Balance sync.</b> The WMS and the ERP each keep their own balance for every location and push it to each other. Every scan on the floor waits for the ERP to answer.');
+      await wait(4200);
+      truckArrive('in', 6);
+      cap('An inbound truck docks with <b>6 boxes</b>. The handler scans the delivery into <b>RCV-DOCK</b>, and the scanner locks until the ERP replies.');
+      await until(() => trucks.in.state === 'docked');
+      await task(HD, 'RECEIVE', 6, 'truckIn', 'rcv', {stay:true});
+      truckLeave('in');
+      cap('Put-away: <b>RCV-DOCK → A-04</b>. That is another synchronous call, so another wait.');
+      await task(HD, 'PUTAWAY', 6, 'rcv', 'a04');
+      await until(idle); await wait(600);
+      cap('<span class="ok">One change at a time, it works.</span> A-04 = <b>18</b> on the shelf, in the WMS DB and in the ERP DB.');
+      await wait(4000);
+    },
+    async () => {
+      inc(1);
+      cap('A picker scans <b>4</b> out of A-04 for an order. The WMS reads <b>18</b> from its database and will send <b>"A-04 = 14"</b>…');
+      const t = task(PK, 'PICK', 4, 'a04', 'stg');
+      await until(() => S.lastTx && S.lastTx.kind === 'PICK' && S.lastTx.read); await wait(300);
+      m1ErpChange('TRANSFER', {a04:-3, b12:+3}, 'Transfer 3 · A-04 → B-12');
+      physMove(HD, 3, 'a04', 'b12');
+      cap('…while an ERP user posts a <b>subinventory transfer of 3</b> from A-04 to B-12, and a handler moves the boxes following the ERP paperwork, with no WMS scan. The ERP pushes <b>"A-04 = 15"</b>. Two balances cross in flight.');
+      await t; await until(() => idle() && S.lost); await wait(900);
+      cap(`<span class="bad"><b>Last writer wins.</b></span> Both databases say A-04 = <b>${S.wms.a04}</b>. The shelf holds <b>${S.phys.a04}</b>. The ERP's own transfer out of A-04 was overwritten, and no error was raised.`);
+      await wait(7500);
+    },
+    async () => {
+      inc(2);
+      S.link = false;
+      cap('The integration link goes down: <b>504 Gateway Timeout</b>. An outbound truck is waiting for the 4 staged boxes.');
+      await wait(2200);
+      const s = task(HD, 'SHIP', 4, 'stg', 'truckOut');
+      await wait(2600);
+      const p = task(PK, 'PICK', 2, 'a04', 'stg');
+      cap('<span class="bad">Every scan needs the ERP.</span> Ship confirm is stuck at the ERP call, so the truck is <b>held at the dock</b>, and the picker\'s scan is stuck behind the same broken link.');
+      await wait(9000);
+      S.link = true;
+      cap('Link restored. Both waiting scans go through, and the truck is finally loaded and leaves.');
+      await Promise.all([s, p]); await until(idle); await wait(900);
+      cap(`<span class="bad">Another silent overwrite.</span> Both scans sent a whole total for STAGE, so the later one erased the ship\'s −4. The WMS says STAGE = <b>${S.wms.stg}</b>, but only <b>${S.phys.stg}</b> boxes are there.`);
+      await wait(7000);
+    },
+    async () => {
+      inc(3);
+      truckArrive('in', 4);
+      cap('<b>A busy floor.</b> Three workers scan at the same moment: a new delivery of <b>4</b> into RCV-DOCK, a pick of <b>2</b> from A-04, and a replenishment of <b>2</b> from B-12 into A-04.');
+      await until(() => trucks.in.state === 'docked');
+      const h = task(HD, 'RECEIVE', 4, 'truckIn', 'rcv');
+      await wait(400);
+      const p = task(PK, 'PICK', 2, 'a04', 'stg');
+      await wait(1500);
+      const r = task(RP, 'TRANSFER', 2, 'b12', 'a04');
+      await wait(3500);
+      cap('The receipt only touches RCV-DOCK, so it goes through fine. But the pick and the replenishment <b>both read the same A-04 total</b> and each sends a whole number back. <b>Whichever arrives last wins.</b>');
+      await Promise.all([h, p, r]); truckLeave('in'); await until(idle); await wait(900);
+      cap(`<span class="bad">The pick\'s −2 was erased.</span> Both systems say A-04 = <b>${S.wms.a04}</b>, but the shelf holds <b>${S.phys.a04}</b>. Different data (the receipt) was fine; the <b>same bin touched twice at once</b> breaks balance sync.`);
+      await wait(7500);
+    },
+    async () => {
+      inc(4);
+      const w = m1ErpChange('WRITE-OFF', {a04:-8}, 'Books-only write-off 8');
+      cap(`Finance posts a <b>books-only write-off of 8</b> on A-04. The ERP pushes <b>"A-04 = ${S.erp.a04}"</b> and overwrites the WMS database. Nothing moved on the floor.`);
+      await until(() => w.dead); await wait(900);
+      cap(`A picker is sent for <b>8</b>. The WMS says A-04 = <b>${S.wms.a04}</b>, so the scan is rejected, <span class="bad">with ${S.phys.a04} boxes sitting on the shelf.</span> Phantom stock.`);
+      await task(PK, 'PICK', 8, 'a04', 'stg');
+      await until(idle); await wait(1500);
+    },
+    async () => {
+      inc(5);
+      cap(`<b>Result:</b> the shelf holds <b>${S.phys.a04}</b>, the WMS says <b>${S.wms.a04}</b>, the ERP says <b>${S.erp.a04}</b>. No errors were logged, and nothing in this design can tell you which number is right. <span class="ok">Pattern B replays the same day →</span>`);
+      await wait(9000);
+    },
+  ],
+  2: [
+    async () => {
+      inc(0);
+      cap('<b>Pattern B · Decoupled custody.</b> The WMS owns everything inside the four walls and the ERP owns the books. Scans commit locally, and only <b>signed deltas</b> travel to the ERP, through an outbox.');
+      await wait(4600);
+      truckArrive('in', 6);
+      cap('The same inbound truck with <b>6 boxes</b>. The handler scans the delivery into RCV-DOCK and <b>keeps moving</b>. Nothing waits on the ERP.');
+      await until(() => trucks.in.state === 'docked');
+      await task(HD, 'RECEIVE', 6, 'truckIn', 'rcv', {stay:true});
+      truckLeave('in');
+      cap('The put-away to A-04 is a second delta. It <b>depends on the receipt</b>, so the outbox won\'t send it until the receipt has posted.');
+      await task(HD, 'PUTAWAY', 6, 'rcv', 'a04', {parentKind:'RECEIVE'});
+      await until(idle); await wait(600);
+      cap('<span class="ok">Reconciled.</span> A-04 = <b>18</b> everywhere. While the deltas were in flight, <b>WMS − ERP</b> always equalled what was in the outbox.');
+      await wait(4000);
+    },
+    async () => {
+      inc(1);
+      cap('The same collision: a picker scans <b>4</b> out of A-04, and an ERP user asks for a <b>transfer of 3</b> from A-04 to B-12…');
+      const t = task(PK, 'PICK', 4, 'a04', 'stg');
+      await wait(1500);
+      const r = m2ErpRequest('TRANSFER', 3, 'a04', 'b12', HD);
+      await wait(2000);
+      cap('…but A-04 is inside WMS custody, so the ERP can\'t change the balance directly. The transfer is <b>sent to the floor as a task</b>, and the handler scans it like any other move.');
+      await t; await r; await until(idle); await wait(900);
+      cap(`<span class="ok">Two deltas, −4 and −3, applied in order.</span> Shelf, WMS and ERP all say A-04 = <b>${S.erp.a04}</b>. Nothing had to decide which number wins.`);
+      await wait(5500);
+    },
+    async () => {
+      inc(2);
+      S.link = false;
+      cap('The integration link goes down: <b>504 Gateway Timeout</b>. An outbound truck is waiting for the 4 staged boxes.');
+      await wait(2200);
+      const s = task(HD, 'SHIP', 4, 'stg', 'truckOut');
+      await wait(2600);
+      const p = task(PK, 'PICK', 2, 'a04', 'stg');
+      cap('<span class="ok">The floor keeps working.</span> The truck is loaded and leaves. Each scan commits locally and <b>stacks up in the outbox</b>, and the gap between WMS and ERP is exactly what the outbox holds.');
+      await Promise.all([s, p]);
+      await until(() => outbox().filter(e => !e.posted).length >= 2); await wait(4500);
+      S.loseAck = true; S.link = true;
+      cap('Link restored, and the outbox drains in order. The first acknowledgement is lost on the way back, so that delta is <b>resent</b>…');
+      await until(() => S.dupSeen); await wait(300);
+      cap('…and the ERP recognises the event key and <b>ignores the duplicate</b>. Nothing is posted twice.');
+      await until(idle); await wait(1500);
+    },
+    async () => {
+      inc(3);
+      truckArrive('in', 4);
+      cap('<b>The same busy floor.</b> Three workers scan at once: a delivery of <b>4</b> into RCV-DOCK, a pick of <b>2</b> from A-04, and a replenishment of <b>2</b> from B-12 into A-04.');
+      await until(() => trucks.in.state === 'docked');
+      const h = task(HD, 'RECEIVE', 4, 'truckIn', 'rcv');
+      await wait(400);
+      const p = task(PK, 'PICK', 2, 'a04', 'stg');
+      await wait(1500);
+      const r = task(RP, 'TRANSFER', 2, 'b12', 'a04');
+      await wait(3500);
+      cap('Nobody waits. Each scan saves in the WMS at once, and the three changes <b>queue up and reach the ERP one after another</b>. The −2 and the +2 on A-04 both land, because each carries only its own change.');
+      await Promise.all([h, p, r]); truckLeave('in'); await until(idle); await wait(900);
+      cap(`<span class="ok">All three changes applied.</span> A-04 = <b>${S.erp.a04}</b> on the shelf, in the WMS and in the ERP. A busy floor just means more rows in the queue.`);
+      await wait(6500);
+    },
+    async () => {
+      inc(4);
+      m2ErpWriteOff(8);
+      cap('Finance tries a <b>books-only write-off of 8</b> against A-04…');
+      await wait(3000);
+      cap('<span class="bad">Rejected.</span> A-04 is in WMS custody, so a change on paper has to go through a floor count. <b>The shelf is the referee.</b>');
+      await wait(6000);
+    },
+    async () => {
+      inc(5);
+      cap(`<b>Result:</b> the shelf, WMS and ERP all say A-04 = <b>${S.phys.a04}</b>. The floor never stopped, nothing was overwritten, and every gap was explained by the outbox. <span class="ok">Back to Pattern A →</span>`);
+      await wait(9000);
+    },
+  ],
+};
+
+/* fast-forward: advance the sim quickly (yielding so scripts keep reacting) */
+const mc = new MessageChannel(); const mcQ = [];
+mc.port1.onmessage = () => { const r = mcQ.shift(); r && r(); };
+const yieldMacro = () => new Promise(r => { mcQ.push(r); mc.port2.postMessage(0); });
+async function fastForward(target, my){
+  ff = true;
+  let n = 0;
+  while (token === my && S.incident < target && n++ < 20000){ simStep(40); await yieldMacro(); }
+  if (token === my){ ff = false; for (const k of ['phys', 'wms', 'erp']) S.disp[k] = S[k].a04; }
+}
+
+async function runPattern(n, startAt){
+  token++; const my = token;
+  pat = n; timers = []; parcels = []; rail = []; effects = []; rows = []; events = []; pulses = []; focusRow = null; idN = {};
+  S = fresh();
+  PK = mkAgent('P-07 · PICKER', COL.wms, {x:-38, y:0});
+  HD = mkAgent('H-11 · HANDLER', '#0e7490', {x:-46, y:9});
+  RP = mkAgent('R-03 · REPLENISHER', '#be185d', {x:-26, y:7});
+  agents = [PK, HD, RP];
+  trucks = {in:{state:'gone', off:-40, alpha:0, load:0}, out:{state:'docked', off:0, alpha:1, load:0, held:false}};
+  document.querySelectorAll('[data-pat]').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.pat === n)));
+  document.getElementById('patDesc').innerHTML = n === 1
+    ? '<span class="pp a">Pattern A · Balance sync</span>The WMS and the ERP each keep their own stock total and send each other the <b>whole number</b> after every change. Every scan waits for the ERP, and the <b>last number written wins</b>.'
+    : '<span class="pp b">Pattern B · Custody + outbox</span>The WMS owns the physical stock, the ERP owns the books. Each scan is saved in the WMS at once; only the <b>change</b> (+6, −4) is queued in an outbox and sent to the ERP, which applies it <b>exactly once</b>.';
+  renderScen(); renderPanels(true);
+  ambientRail();
+  startAt = startAt || 0;
+  if (startAt > 0) fastForward(startAt, my);
+  try {
+    for (let i = 0; i < SCRIPT[n].length; i++){ await SCRIPT[n][i](); if (my !== token) return; }
+    if (my === token) runPattern(n === 1 ? 2 : 1, 0);
+  } catch (e){ if (e !== 'stop') console.error(e); }
+}
+
+/* =====================================================================
+   HTML PANELS
+   ===================================================================== */
+function renderScen(){
+  const el = document.getElementById('scen');
+  el.innerHTML = '<span class="lbl">Scenario</span>' + SCEN.map((t, i) =>
+    `<button data-inc="${i}" class="${i === S.incident ? 'on' : i < S.incident ? 'done' : ''}" title="Jump to: ${t}"><b>${i < S.incident ? '✓' : i + 1}</b>${t}</button>`).join('');
+  el.querySelectorAll('[data-inc]').forEach(b => b.onclick = () => runPattern(pat, +b.dataset.inc));
+}
+let lastSig = '', lastInv = '', openStep = -1;
+function renderPanels(force){
+  const fr = focusRow, st = STAGES[pat];
+  const stepCls = i => {
+    if (!fr) return '';
+    const m = fr.mark[i];
+    if (m === 'b') return 'bad';
+    if (m === 'w' && i === fr.stage - 1) return 'wait';
+    if (fr.status === 'active' && (fr.at === i || (fr.at < 0 && i === fr.stage))) return 'cur';
+    return i < fr.stage ? 'done' : '';
+  };
+  const stepperHtml = st.map((s, i) => {
+    const c = stepCls(i);
+    const now = fr && fr.text[i] ? `<div class="now"><span>Now · ${fr.id} · ${fr.title}</span>${fr.text[i]}</div>` : '';
+    return `<li data-step="${i}" tabindex="0" class="${c}${openStep === i ? ' open' : ''}" title="Click for the full explanation"><span class="n">${c === 'done' ? '✓' : i + 1}</span><span class="t">${s[0]}<em class="tech">${s[1]}</em></span><span class="d">${s[2]}</span><div class="pop"><b>${i + 1} · ${s[0]} <em class="tech">${s[1]}</em></b>${s[2]}${now}</div></li>`;
+  }).join('');
+  let liveHtml = '', liveId = '—', liveTitle = 'Waiting for the floor…', org = 'wms';
+  if (fr){
+    liveId = fr.id; liveTitle = fr.title; org = fr.org;
+    liveHtml = st.map((s, i) => {
+      const m = fr.mark[i];
+      let cls = i < fr.stage ? 'done' : 'pend';
+      if (fr.status === 'active' && (fr.at === i || (fr.at < 0 && i === fr.stage - 1))) cls = 'cur';
+      if (m === 'b') cls = 'bad'; if (m === 'w') cls = 'wait';
+      return `<li class="${cls}"><i class="dotc"></i><span><span class="nm">0${i+1} ${s[0]}</span><span class="tx">${fr.text[i] || ''}</span></span></li>`;
+    }).join('');
+  }
+  const ledHtml = rows.slice(0, 7).map(r => {
+    const bar = st.map((_, i) => { const m = r.mark[i]; const c = m === 'b' ? 'b' : m === 'w' ? 'w' : i < r.stage ? (i === r.stage - 1 && r.status === 'active' ? 'c' : 'd') : ''; return `<i class="${c}"></i>`; }).join('');
+    return `<div class="lrow${r.isNew ? ' new' : ''}"><span class="meta">${r.id} · ${r.type}</span><span class="dst">${r.dest}</span><span class="ttl">${r.title}</span><span class="bar">${bar}</span></div>`;
+  }).join('');
+  const cellCls = (l, v) => v === S.phys[l] ? '' : (mismatchSeverity() === 'bad' ? 'bad' : 'flight');
+  const invHtml = `<h4>Inventory by location · SKU-8820</h4><div class="sub">red = database wrong · amber = change on its way</div>`
+    + `<table><thead><tr><th></th><th style="color:var(--ok)">Shelf</th><th style="color:var(--wms)">WMS</th><th style="color:var(--erp)">ERP</th></tr></thead><tbody>`
+    + ['rcv', 'a04', 'b12', 'stg'].map(l => `<tr><th>${LOCNAME[l]}</th><td>${S.phys[l]}</td><td class="${cellCls(l, S.wms[l])}">${S.wms[l]}</td><td class="${cellCls(l, S.erp[l])}">${S.erp[l]}</td></tr>`).join('')
+    + `</tbody></table><div class="note">${pat === 2 ? `Queued for ERP: <b>${outbox().length}</b>` : `Scans waiting on ERP: <b>${S.m1n}</b>`}</div>`;
+  if (invHtml !== lastInv){ lastInv = invHtml; document.getElementById('inv').innerHTML = invHtml; }
+  const sig = stepperHtml + liveHtml + liveId + ledHtml;
+  if (sig === lastSig && !force) return;
+  lastSig = sig;
+  document.getElementById('stepper').innerHTML = stepperHtml;
+  document.getElementById('liveSteps').innerHTML = liveHtml;
+  const idEl = document.getElementById('liveId'); idEl.textContent = liveId; idEl.className = 'id' + (org === 'erp' ? ' erp' : '');
+  document.getElementById('liveTitle').textContent = liveTitle;
+  document.getElementById('ledger').innerHTML = ledHtml || '<div class="lrow"><span class="ttl" style="color:var(--muted)">No transactions yet</span></div>';
+  rows.forEach(r => r.isNew = false);
+}
+
+/* =====================================================================
+   LOOP
+   ===================================================================== */
+function simStep(dt){
+  simNow += dt;
+  timers.sort((a, b) => a.at - b.at);
+  while (timers.length && timers[0].at <= simNow) timers.shift().fn();
+  stepParcels(dt); stepAgents(dt); stepTrucks(dt);
+  if (pat === 1 && S.m1n > 0 && !S.link) S.blockedMs += dt;
+  const k = Math.min(1, dt / 220);
+  S.disp.phys += (S.phys.a04 - S.disp.phys) * k; S.disp.wms += (S.wms.a04 - S.disp.wms) * k; S.disp.erp += (S.erp.a04 - S.disp.erp) * k;
+}
+let lastReal = performance.now(), lastPanel = 0;
+function frame(now){
+  const dtReal = Math.min(80, now - lastReal); lastReal = now;
+  if (!paused && !ff) simStep(dtReal * speed);
+  draw();
+  if (now - lastPanel > 140){ lastPanel = now; renderPanels(); }
+  requestAnimationFrame(frame);
+}
+
+document.querySelectorAll('[data-pat]').forEach(b => b.onclick = () => runPattern(+b.dataset.pat, S.incident));
+document.querySelectorAll('[data-speed]').forEach(b => b.onclick = () => {
+  speed = +b.dataset.speed;
+  document.querySelectorAll('[data-speed]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+});
+const pb = document.getElementById('playBtn');
+pb.onclick = () => { paused = !paused; pb.textContent = paused ? '▶ Play' : '❚❚ Pause'; pb.classList.toggle('paused', paused); };
+const stepperEl = document.getElementById('stepper');
+const toggleStep = li => { const i = +li.dataset.step; openStep = openStep === i ? -1 : i; renderPanels(true); };
+stepperEl.addEventListener('click', e => { if (e.target.closest('.pop')) { e.stopPropagation(); return; } const li = e.target.closest('[data-step]'); if (!li) return; e.stopPropagation(); toggleStep(li); });
+stepperEl.addEventListener('keydown', e => { const li = e.target.closest('[data-step]'); if (li && (e.key === 'Enter' || e.key === ' ')){ e.preventDefault(); toggleStep(li); } if (e.key === 'Escape'){ openStep = -1; renderPanels(true); } });
+document.addEventListener('click', () => { if (openStep >= 0){ openStep = -1; renderPanels(true); } });
+const capFull = document.getElementById('capFull');
+const openCap = e => { e.stopPropagation(); capOverflow(); capFull.classList.add('show'); };
+document.getElementById('capMore').addEventListener('click', openCap);
+document.getElementById('caption').addEventListener('click', openCap);
+capFull.addEventListener('click', e => { e.stopPropagation(); if (e.target.closest('.x')) capFull.classList.remove('show'); });
+document.addEventListener('click', () => capFull.classList.remove('show'));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') capFull.classList.remove('show'); });
+window.addEventListener('resize', () => { fit(); capOverflow(); });
+window.__dm = () => ({pat, inc:S.incident, ff, a04:{phys:S.phys.a04, wms:S.wms.a04, erp:S.erp.a04}, phys:S.phys, wms:S.wms, erp:S.erp, link:S.link, parcels:parcels.length, caption:document.getElementById('caption').textContent});
+window.__jump = (p, i) => runPattern(p, i);
+window.__ackNow = () => parcels.some(p => { const l = p.label && p.label(); return l && l.text.startsWith('ACK') && p.alpha > .9 && p.x < G[4] - 4; });
+
+fit();
+runPattern(+Q.get('pattern') === 2 ? 2 : 1, +Q.get('scenario') || 0);
+fit();
+if (window.ResizeObserver){ const ro = new ResizeObserver(() => fit()); ro.observe(document.getElementById('scene')); ro.observe(document.getElementById('inv')); }
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
+
+</body></html>
